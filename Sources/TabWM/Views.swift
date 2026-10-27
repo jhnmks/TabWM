@@ -454,10 +454,14 @@ struct SettingsView: View {
 
     // MARK: About
 
+    static var appVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.1"
+    }
+
     var about: some View {
         VStack(alignment: .leading, spacing: 24) {
             SettingsCard("TabWM", symbol: "rectangle.stack") {
-                SettingRow("Version 1.0", detail: "Groups your windows as tabs, like browser tabs, for any app on your Mac.") { EmptyView() }
+                SettingRow("Version \(Self.appVersion)", detail: "Groups your windows as tabs, like browser tabs, for any app on your Mac.") { EmptyView() }
             }
             SettingsCard("Something not working?", symbol: "stethoscope") {
                 SettingRow("Copy diagnostics", detail: "Copies a short report (macOS version, permissions, number of windows and groups) that you can paste into a bug report. It contains no window titles.") {
@@ -467,7 +471,7 @@ struct SettingsView: View {
         }
     }
     var copyDiagnosticsButton: some View {
-        Button("Copy") { let text = "TabWM 1.0\n\(ProcessInfo.processInfo.operatingSystemVersionString)\nAccessibility: \(controller.system.accessibilityGranted)\nShortcuts: \(controller.shortcuts.isActive)\nWindows: \(controller.windows.count)\nGroups: \(controller.groups.count)\n\(controller.system.lastError ?? "")"; NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text, forType: .string); controller.status = "Diagnostics copied." }
+        Button("Copy") { let text = "TabWM \(Self.appVersion)\n\(ProcessInfo.processInfo.operatingSystemVersionString)\nAccessibility: \(controller.system.accessibilityGranted)\nShortcuts: \(controller.shortcuts.isActive)\nWindows: \(controller.windows.count)\nGroups: \(controller.groups.count)\n\(controller.system.lastError ?? "")"; NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text, forType: .string); controller.status = "Diagnostics copied." }
     }
 }
 
