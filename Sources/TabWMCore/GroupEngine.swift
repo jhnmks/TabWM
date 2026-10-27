@@ -91,6 +91,22 @@ public final class GroupEngine {
         guard let i = index(id), !groups[i].isLocked else { return }
         change { remove(id, at: i) }
     }
+    /// Removes a member unconditionally, ignoring group locks (used when a window is destroyed).
+    public func evict(_ id: UInt32) {
+        guard let i = index(id) else { return }
+        change { remove(id, at: i) }
+    }
+    /// Removes multiple members unconditionally, ignoring group locks (used when an app quits).
+    public func evict(all ids: Set<UInt32>) {
+        guard !ids.isEmpty else { return }
+        change {
+            for id in ids {
+                if let i = index(id) {
+                    remove(id, at: i)
+                }
+            }
+        }
+    }
     private func remove(_ id: UInt32, at i: Int) {
         groups[i].members.removeAll { $0 == id }
         groups[i].mru.removeAll { $0 == id }

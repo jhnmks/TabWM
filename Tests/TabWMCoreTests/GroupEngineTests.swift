@@ -107,6 +107,35 @@ final class GroupEngineTests: XCTestCase {
         engine.reconcile(windows: [window(2)], settings: AppSettings())
         XCTAssertTrue(engine.groups.isEmpty)
     }
+    func testEvictRemovesMemberImmediatelyEvenIfLocked() {
+        let engine = GroupEngine()
+        engine.group(window(1), with: window(2)); engine.group(window(3), with: window(2))
+        engine.activate(1)
+        let groupID = engine.groups[0].id
+        engine.setLocked(groupID, locked: true)
+        engine.evict(1)
+        XCTAssertEqual(engine.groups.count, 1)
+        XCTAssertEqual(Set(engine.groups[0].members), [2, 3])
+        XCTAssertTrue(engine.groups[0].isLocked)
+        XCTAssertTrue(engine.groups[0].members.contains(engine.groups[0].activeWindowID))
+    }
+    func testEvictDissolvesSingletonGroupImmediately() {
+        let engine = GroupEngine()
+        engine.group(window(1), with: window(2))
+        engine.evict(1)
+        XCTAssertTrue(engine.groups.isEmpty)
+    }
+    func testEvictAllRemovesMultipleMembersAtomically() {
+        let engine = GroupEngine()
+        engine.group(window(1), with: window(2)); engine.group(window(3), with: window(1))
+        engine.group(window(4), with: window(5))
+        var changeCount = 0
+        engine.onChange = { changeCount += 1 }
+        engine.evict(all: [1, 4])
+        XCTAssertEqual(changeCount, 1)
+        XCTAssertEqual(engine.groups.count, 1)
+        XCTAssertEqual(Set(engine.groups[0].members), [2, 3])
+    }
     func testMissingCensusToleranceResetsAfterLiveSighting() {
         let engine = GroupEngine(missingSweepLimit: 3)
         engine.group(window(1), with: window(2))

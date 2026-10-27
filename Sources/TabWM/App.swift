@@ -88,6 +88,8 @@ final class AppController: NSObject, ObservableObject, NSMenuDelegate {
     @Published var groupDesktops: [UUID: String] = [:]
     var desktopTimer: Timer?
     var recentMinimizeChanges: [UInt32:TimeInterval] = [:]
+    /// Window IDs destroyed recently, so in-flight or asynchronous censuses don't resurrect them.
+    var destroyedWindows: [UInt32: TimeInterval] = [:]
     /// Session state (open groups). Stays in Application Support: it isn't configuration.
     let storage: URL
     /// Where settings.toml lives: $XDG_CONFIG_HOME/TabWM, or ~/.config/TabWM.
@@ -196,6 +198,12 @@ final class AppController: NSObject, ObservableObject, NSMenuDelegate {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { self?.updateOverlays() }
             }
         })
+        workspaceObservers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didTerminateApplicationNotification, object: nil, queue: .main) { [weak self] notification in
+            MainActor.assumeIsolated {
+                guard let self, let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
+                self.handleAppTerminated(pid: app.processIdentifier)
+            }
+        })
         if !system.accessibilityGranted { showSettings() }
     }
     func stop() {
@@ -284,26 +292,28 @@ final class AppController: NSObject, ObservableObject, NSMenuDelegate {
         let unavailable = system.censusUnavailablePIDs
         let old = windows
         let now = ProcessInfo.processInfo.systemUptime
-        for w in found {
+        destroyedWindows = destroyedWindows.filter { now - $0.value < 3.0 }
+        let liveFound = found.filter { destroyedWindows[$0.id] == nil }
+        for w in liveFound {
             if let previous = old.first(where:{$0.id == w.id}), previous.isMinimized != w.isMinimized { recentMinimizeChanges[w.id] = now }
         }
         recentMinimizeChanges = recentMinimizeChanges.filter { now - $0.value < 0.6 }
-        windows = found + old.filter { prior in unavailable.contains(prior.pid) && !found.contains(where: { $0.id == prior.id }) }
-        for w in found { knownTitles[w.id] = (w.title, w.appName) }
+        windows = liveFound + old.filter { prior in unavailable.contains(prior.pid) && !liveFound.contains(where: { $0.id == prior.id }) && destroyedWindows[prior.id] == nil }
+        for w in liveFound { knownTitles[w.id] = (w.title, w.appName) }
         // Windows seen for the first time (after the first census, which only records the
         // windows that already existed).
-        let fresh = sawFirstCensus ? found.filter { !seenWindows.contains($0.id) } : []
-        seenWindows = Set(found.map(\.id)).union(engine.groups.flatMap(\.members))
-        if system.accessibilityGranted && !found.isEmpty { sawFirstCensus = true }
-        let keep = Set(engine.groups.flatMap(\.members)).union(found.map(\.id))
+        let fresh = sawFirstCensus ? liveFound.filter { !seenWindows.contains($0.id) } : []
+        seenWindows = Set(liveFound.map(\.id)).union(engine.groups.flatMap(\.members))
+        if system.accessibilityGranted && !liveFound.isEmpty { sawFirstCensus = true }
+        let keep = Set(engine.groups.flatMap(\.members)).union(liveFound.map(\.id))
         knownTitles = knownTitles.filter { keep.contains($0.key) }
-        if !didRestore && system.accessibilityGranted && !found.isEmpty {
+        if !didRestore && system.accessibilityGranted && !liveFound.isEmpty {
             if !Set(startupPIDs.values).isDisjoint(with:system.censusUnavailablePIDs), startupRestore != nil { return }
             didRestore = true
             if let saved = startupRestore {
                 engine.restore(saved.map { group in
                     var group = group
-                    group.members = group.members.filter { id in found.contains { $0.id == id && $0.pid == startupPIDs[id] } }
+                    group.members = group.members.filter { id in liveFound.contains { $0.id == id && $0.pid == startupPIDs[id] } }
                     return group
                 })
             }
@@ -313,7 +323,7 @@ final class AppController: NSObject, ObservableObject, NSMenuDelegate {
         // While Mission Control is open (detected from the window list), leave windows alone.
         guard !paused, system.accessibilityGranted, !isSpaceTransitioning, !system.missionControlActive, !stageManagerEnabled else { updateOverlays(); return }
         reconcileNativeTabs(previous: old, now: now)
-        engine.reconcile(windows: windows, settings: settings, preservingMissing: pendingNativeMembers.union(membersOnOtherSpaces(found)))
+        engine.reconcile(windows: windows, settings: settings, preservingMissing: pendingNativeMembers.union(membersOnOtherSpaces(liveFound)))
         reconcileSpaces()
         if let focused = system.focusedWindowID, let group = engine.group(containing: focused) {
             lastFocusedGroupAt[group.id] = now
@@ -745,7 +755,7 @@ final class AppController: NSObject, ObservableObject, NSMenuDelegate {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in self?.system.refresh() }
             }
         case .windowDestroyed:
-            if engine.group(containing: id) != nil { system.refresh() }
+            handleWindowDestroyed(id)
         case .windowReordered:
             guard let group = engine.group(containing: id) else { return }
             if group.activeWindowID == id { if let panel = overlays[group.id], panel.isVisible { panel.restack() }; return }
@@ -759,6 +769,77 @@ final class AppController: NSObject, ObservableObject, NSMenuDelegate {
             // Decide once the window stops changing (mid-drag, the mouse-up check decides).
             if engine.group(containing: id) != nil, recentWrites[id] == nil { scheduleMemberCheck() }
         }
+    }
+    /// Window closed by user or application; detach immediately instead of waiting for census sweeps.
+    func handleWindowDestroyed(_ id: UInt32) {
+        let now = ProcessInfo.processInfo.systemUptime
+        destroyedWindows[id] = now
+        restingFrames.removeValue(forKey: id)
+        recentWrites.removeValue(forKey: id)
+        offSpaceSince.removeValue(forKey: id)
+        knownTitles.removeValue(forKey: id)
+        seenWindows.remove(id)
+        windows.removeAll { $0.id == id }
+        system.dropWindow(id)
+
+        if let group = engine.group(containing: id) {
+            let wasActive = (group.activeWindowID == id)
+            let otherMembers = group.members.filter { $0 != id }
+            engine.evict(id)
+            if wasActive {
+                if let successorID = otherMembers.first(where: { otherID in
+                    guard let w = window(otherID) else { return true }
+                    return NSRunningApplication(processIdentifier: w.pid)?.isTerminated == false
+                }) ?? otherMembers.first {
+                    if let remainingGroup = engine.group(containing: successorID) {
+                        lastActivation[remainingGroup.id] = now
+                        system.focus(remainingGroup.activeWindowID)
+                    } else {
+                        system.focus(successorID)
+                    }
+                }
+            }
+            updateOverlays()
+        }
+        system.refresh()
+    }
+    /// Application terminated; remove all its windows immediately without lingering tabs.
+    func handleAppTerminated(pid: pid_t) {
+        let now = ProcessInfo.processInfo.systemUptime
+        let deadIDs = Set(windows.filter { $0.pid == pid }.map(\.id))
+            .union(engine.groups.flatMap(\.members).filter { window($0)?.pid == pid || startupPIDs[$0] == pid })
+        guard !deadIDs.isEmpty else { return }
+        for id in deadIDs {
+            destroyedWindows[id] = now
+            restingFrames.removeValue(forKey: id)
+            recentWrites.removeValue(forKey: id)
+            offSpaceSince.removeValue(forKey: id)
+            knownTitles.removeValue(forKey: id)
+            seenWindows.remove(id)
+        }
+        windows.removeAll { deadIDs.contains($0.id) }
+        system.dropWindows(deadIDs)
+
+        var successorsToFocus: [UInt32] = []
+        for group in engine.groups {
+            if deadIDs.contains(group.activeWindowID) {
+                let aliveMembers = group.members.filter { !deadIDs.contains($0) }
+                if let successor = aliveMembers.first {
+                    successorsToFocus.append(successor)
+                }
+            }
+        }
+        engine.evict(all: deadIDs)
+        for successor in successorsToFocus {
+            if let remainingGroup = engine.group(containing: successor) {
+                lastActivation[remainingGroup.id] = now
+                system.focus(remainingGroup.activeWindowID)
+            } else {
+                system.focus(successor)
+            }
+        }
+        updateOverlays()
+        system.refresh()
     }
     /// On a Space switch, show each group's strip whose visible window is on the arriving Space
     /// and hide the rest, using the window server's live list. The census (which decides

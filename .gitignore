@@ -4,3 +4,4 @@ dist/
 *.log
 # Editor setup tied to this Mac's SDK paths.
 .sourcekit-lsp/
+TODO.txt

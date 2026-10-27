@@ -317,6 +317,15 @@ final class WindowSystem {
         guard result == .success else { lastError = "\(action) failed (Accessibility error \(result.rawValue))."; return false }
         return true
     }
+    func dropWindows(_ ids: Set<UInt32>) {
+        guard !ids.isEmpty else { return }
+        for id in ids { elements.removeValue(forKey: id) }
+        windows.removeAll { ids.contains($0.id) }
+        zOrder.removeAll { ids.contains($0) }
+    }
+    func dropWindow(_ id: UInt32) {
+        dropWindows([id])
+    }
     func focus(_ id: UInt32) {
         guard let element = checkedElement(id) else { return }
         lastError = nil
