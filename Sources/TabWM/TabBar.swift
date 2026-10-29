@@ -159,15 +159,19 @@ struct GroupDropPreview: View {
 struct TabStripView: View {
     @ObservedObject var controller: AppController
     let group: TabWMCore.WindowGroup
+    /// Color mode: ink that reads on the shell color; nil in Glass mode.
+    var ink: Color? {
+        controller.settings.frameStyle == "catppuccin" ? Catppuccin.onShell(controller.settings.frameColor) : nil
+    }
     var body: some View {
         LiquidGlassGroup(spacing: 4) {
             HStack(spacing: 3) {
                 if group.isLocked {
                     Image(systemName: "lock.fill").font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(.secondary).padding(.leading, 6).help("Group is locked")
+                        .foregroundStyle(ink.map { AnyShapeStyle($0.opacity(0.7)) } ?? AnyShapeStyle(.secondary)).padding(.leading, 6).help("Group is locked")
                 }
                 if let name = group.name, !name.isEmpty {
-                    Text(name).font(.system(size: 11, weight: .bold)).foregroundStyle(.secondary)
+                    Text(name).font(.system(size: 11, weight: .bold)).foregroundStyle(ink.map { AnyShapeStyle($0.opacity(0.85)) } ?? AnyShapeStyle(.secondary))
                         .lineLimit(1).frame(maxWidth: 110, alignment: .leading).padding(.horizontal, 6)
                 }
                 ForEach(group.members, id: \.self) { id in
@@ -181,13 +185,13 @@ struct TabStripView: View {
                         }
                     } label: { Image(systemName: "macwindow.on.rectangle").font(.system(size: 11, weight: .medium)) }
                     .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
-                    .foregroundStyle(.secondary).help("Move to Display")
+                    .foregroundStyle(ink.map { AnyShapeStyle($0.opacity(0.7)) } ?? AnyShapeStyle(.secondary)).help("Move to Display")
                 }
-                PaletteDot(controller: controller)
+                PaletteDot(controller: controller, ink: ink)
                 if controller.settings.searchEnabled {
-                    BarIconButton(symbol: "magnifyingglass", help: "Search tabs") { controller.showSearch() }
+                    BarIconButton(symbol: "magnifyingglass", help: "Search tabs", ink: ink) { controller.showSearch() }
                 }
-                BarIconButton(symbol: "plus", help: "Add window") { controller.showWindowPicker(target: group.activeWindowID) }
+                BarIconButton(symbol: "plus", help: "Add window", ink: ink) { controller.showWindowPicker(target: group.activeWindowID) }
                     .disabled(group.isLocked)
             }
             .padding(.horizontal, 4).padding(.vertical, 4)
@@ -212,12 +216,17 @@ struct TabItemView: View {
     })
 
     var catppuccin: Bool { controller.settings.frameStyle == "catppuccin" }
-    var selectedFill: Color { catppuccin ? Catppuccin.base : Self.activeFill }
-    /// Color mode: every tab is a card on the accent shell; the others are faded.
+    var ink: Color { Catppuccin.onShell(controller.settings.frameColor) }
+    var selectedFill: Color { catppuccin ? Catppuccin.selectedTab(controller.settings.frameColor) : Self.activeFill }
+    /// Color mode: the selected tab is a raised card; the others are faint tints of the shell.
     var fill: Color {
         if active || dragging { return selectedFill }
-        if catppuccin { return Catppuccin.base.opacity(hovering ? 0.75 : 0.5) }
+        if catppuccin { return ink.opacity(hovering ? 0.16 : 0.09) }
         return hovering ? Color.primary.opacity(0.07) : Color.clear
+    }
+    var titleColor: Color {
+        if catppuccin { return active || dragging ? Catppuccin.text : ink.opacity(hovering ? 0.85 : 0.6) }
+        return active ? Color.primary : Color.secondary
     }
     var shadowOpacity: Double { active || dragging ? (catppuccin ? 0.3 : 0.14) : 0 }
 
@@ -228,13 +237,13 @@ struct TabItemView: View {
             if let icon = controller.system.appIcon(id) { Image(nsImage: icon).resizable().interpolation(.high).frame(width: 15, height: 15) }
             Text(title)
                 .font(.system(size: 12, weight: active ? .semibold : .medium))
-                .foregroundStyle(catppuccin ? (active ? Catppuccin.text : Catppuccin.subtext) : (active ? Color.primary : Color.secondary))
+                .foregroundStyle(titleColor)
                 .lineLimit(1).truncationMode(.tail)
             if group.suspended.contains(id) { Image(systemName: "pause.circle").font(.system(size: 10)).foregroundStyle(.tertiary) }
             if controller.settings.showBadges, let info { DockBadgeView(badges: controller.badges, bundleID: info.bundleID) }
             Spacer(minLength: 0)
         }
-        .opacity(catppuccin && !active && !dragging && !hovering ? 0.7 : 1)
+        .opacity(catppuccin && !active && !dragging && !hovering ? 0.8 : 1)
         .padding(.horizontal, 10)
         .frame(minWidth: 48, maxWidth: 200, maxHeight: .infinity)
         .background {
@@ -303,14 +312,16 @@ struct GroupMenuItems: View {
 struct BarIconButton: View {
     let symbol: String
     let help: String
+    /// Color mode ink for the shell; nil uses the system colors.
+    var ink: Color? = nil
     let action: () -> Void
     @State private var hovering = false
     var body: some View {
         Button(action: action) {
             Image(systemName: symbol).font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(hovering ? .primary : .secondary)
+                .foregroundStyle(ink.map { AnyShapeStyle($0.opacity(hovering ? 1 : 0.7)) } ?? (hovering ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary)))
                 .frame(width: 24, height: 22)
-                .background(hovering ? Color.primary.opacity(0.08) : Color.clear, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                .background(hovering ? (ink ?? Color.primary).opacity(0.1) : Color.clear, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain).help(help).onHover { hovering = $0 }

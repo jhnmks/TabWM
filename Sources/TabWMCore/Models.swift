@@ -61,10 +61,14 @@ public struct WindowGroup: Identifiable, Codable, Equatable {
 public enum KeyModifier {
     public static let command: UInt32 = 0x100, shift: UInt32 = 0x200, option: UInt32 = 0x800, control: UInt32 = 0x1000
     public static let all: UInt32 = 0x1f00
+    /// Modifiers that may be added to a leader shortcut: leader+shift+KEY, leader+ctrl+KEY.
+    public static let leaderExtras: UInt32 = shift | control
 }
 
 public enum ShortcutAction: String, Codable, CaseIterable, Sendable {
-    case groupAll, addTab, ungroup, search, previousTab, nextTab
+    case groupAll, addTab, ungroup, search, previousTab, nextTab, moveTabLeft, moveTabRight
+    /// Actions that fire again while their key auto-repeats.
+    public var repeats: Bool { [.previousTab, .nextTab, .moveTabLeft, .moveTabRight].contains(self) }
     public var title: String {
         switch self {
         case .groupAll: return "Group all windows on this Space"
@@ -73,12 +77,14 @@ public enum ShortcutAction: String, Codable, CaseIterable, Sendable {
         case .search: return "Search tabs"
         case .previousTab: return "Previous tab"
         case .nextTab: return "Next tab"
+        case .moveTabLeft: return "Move tab left"
+        case .moveTabRight: return "Move tab right"
         }
     }
 }
 
 /// A global shortcut. With `usesLeader` it is the shared leader plus `keyCode` (and an
-/// optional extra Shift in `modifiers`); otherwise it is a standalone combo in `modifiers`.
+/// optional extra Shift and/or Control in `modifiers`); otherwise it is a standalone combo in `modifiers`.
 public struct ShortcutBinding: Codable, Equatable, Sendable {
     public var keyCode: UInt32
     public var modifiers: UInt32
@@ -138,10 +144,11 @@ public struct AppSettings: Codable, Equatable {
     /// Keyed by `ShortcutAction.rawValue`; a missing entry means the default binding.
     public var shortcuts: [String: ShortcutBinding] = [:]
     public init() {}
-    // Defaults: leader + G, T, U, S, ←, →.
+    // Defaults: leader + G, T, U, S, ←, →, ⌃←, ⌃→.
     public static let defaultShortcuts: [ShortcutAction: ShortcutBinding] = [
         .groupAll: ShortcutBinding(keyCode: 5), .addTab: ShortcutBinding(keyCode: 17), .ungroup: ShortcutBinding(keyCode: 32), .search: ShortcutBinding(keyCode: 1),
         .previousTab: ShortcutBinding(keyCode: 123), .nextTab: ShortcutBinding(keyCode: 124),
+        .moveTabLeft: ShortcutBinding(keyCode: 123, modifiers: KeyModifier.control), .moveTabRight: ShortcutBinding(keyCode: 124, modifiers: KeyModifier.control),
     ]
     /// Modifier masks for chord leaders; solo leaders and "off" have none.
     public static let leaderChords: [String: UInt32] = [

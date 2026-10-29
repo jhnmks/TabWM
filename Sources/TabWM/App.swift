@@ -660,6 +660,8 @@ final class AppController: NSObject, ObservableObject, NSMenuDelegate {
         switch action {
         case .nextTab: cycle(forward: true)
         case .previousTab: cycle(forward: false)
+        case .moveTabLeft: if let group = focusedGroup { engine.shift(group.activeWindowID, by: -1) }
+        case .moveTabRight: if let group = focusedGroup { engine.shift(group.activeWindowID, by: 1) }
         case .search: showSearch()
         case .groupAll: groupAllOnCurrentSpace()
         case .addTab:

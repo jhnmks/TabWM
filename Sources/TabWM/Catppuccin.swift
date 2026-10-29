@@ -18,7 +18,7 @@ enum Catppuccin {
             "rosewater": 0xdc8a78, "flamingo": 0xdd7878, "pink": 0xea76cb, "mauve": 0x8839ef,
             "red": 0xd20f39, "maroon": 0xe64553, "peach": 0xfe640b, "yellow": 0xdf8e1d,
             "green": 0x40a02b, "teal": 0x179299, "sky": 0x04a5e5, "sapphire": 0x209fb5,
-            "blue": 0x1e66f5, "lavender": 0x7287fd,
+            "blue": 0x1e66f5, "lavender": 0x7287fd, "dark": 0x1e1e2d,
         ],
         base: 0xeff1f5, mantle: 0xe6e9ef, crust: 0xdce0e8, strip: 0xe6e9ef, surface0: 0xccd0da, surface1: 0xbcc0cc,
         text: 0x4c4f69, subtext: 0x6c6f85)
@@ -27,7 +27,7 @@ enum Catppuccin {
             "rosewater": 0xf5e0dc, "flamingo": 0xf2cdcd, "pink": 0xf5c2e7, "mauve": 0xcba6f7,
             "red": 0xf38ba8, "maroon": 0xeba0ac, "peach": 0xfab387, "yellow": 0xf9e2af,
             "green": 0xa6e3a1, "teal": 0x94e2d5, "sky": 0x89dceb, "sapphire": 0x74c7ec,
-            "blue": 0x89b4fa, "lavender": 0xb4befe,
+            "blue": 0x89b4fa, "lavender": 0xb4befe, "dark": 0x1e1e2d,
         ],
         base: 0x1e1e2e, mantle: 0x181825, crust: 0x11111b, strip: 0x1e1e2d, surface0: 0x313244, surface1: 0x45475a,
         text: 0xcdd6f4, subtext: 0xa6adc8)
@@ -45,6 +45,34 @@ enum Catppuccin {
         NSColor(srgbRed: CGFloat((hex >> 16) & 0xff) / 255, green: CGFloat((hex >> 8) & 0xff) / 255,
                 blue: CGFloat(hex & 0xff) / 255, alpha: 1)
     }
+    static func hex(_ name: String, dark: Bool) -> UInt32 {
+        let palette = dark ? mocha : latte
+        return palette.accents[name] ?? palette.accents["blue"]!
+    }
+    /// WCAG relative luminance, 0 (black) – 1 (white).
+    static func luminance(_ hex: UInt32) -> CGFloat {
+        func channel(_ shift: UInt32) -> CGFloat {
+            let c = CGFloat((hex >> shift) & 0xff) / 255
+            return c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4)
+        }
+        return 0.2126 * channel(16) + 0.7152 * channel(8) + 0.0722 * channel(0)
+    }
+    static func dynamic(_ make: @escaping (_ dark: Bool, _ palette: Palette) -> NSColor) -> Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            let dark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            return make(dark, dark ? mocha : latte)
+        })
+    }
+    /// Text and icons drawn straight on the shell: dark on pastel/bright shells, white on deep ones.
+    static func onShell(_ name: String) -> Color {
+        dynamic { dark, _ in luminance(hex(name, dark: dark)) > 0.3 ? nsColor(0x11111b) : .white }
+    }
+    /// The selected tab: the palette's base, or a lighter surface when the shell is as dark as base.
+    static func selectedTab(_ name: String) -> Color {
+        dynamic { dark, p in
+            nsColor(abs(luminance(p.base) - luminance(hex(name, dark: dark))) < 0.1 ? p.surface1 : p.base)
+        }
+    }
     static let base = color(\.base), strip = color(\.strip), surface0 = color(\.surface0)
     static let text = color(\.text), subtext = color(\.subtext)
 
@@ -54,16 +82,17 @@ enum Catppuccin {
 /// The empty dot in the tab strip: opens the color picker.
 struct PaletteDot: View {
     @ObservedObject var controller: AppController
+    /// Color mode ink for the shell; nil uses the system colors.
+    var ink: Color? = nil
     @State private var hovering = false
     @State private var open = false
     var body: some View {
-        let catppuccin = controller.settings.frameStyle == "catppuccin"
         Button { open.toggle() } label: {
             Circle()
-                .strokeBorder(catppuccin ? Catppuccin.text : Color.secondary, lineWidth: 1.5)
+                .strokeBorder(ink.map { AnyShapeStyle($0.opacity(hovering ? 1 : 0.7)) } ?? AnyShapeStyle(.secondary), lineWidth: 1.5)
                 .frame(width: 11, height: 11)
                 .frame(width: 24, height: 22)
-                .background(hovering ? Color.primary.opacity(0.08) : Color.clear, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                .background(hovering ? (ink ?? Color.primary).opacity(0.1) : Color.clear, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain).help("Frame colors").onHover { hovering = $0 }

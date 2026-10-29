@@ -16,8 +16,9 @@ func runUISmoke(output: URL) {
         controller.engine.group(first,with:second);controller.engine.group(third,with:second)
         if let group=controller.groups.first {controller.engine.rename(group.id,name:"Development")}
         var retained:[NSWindow]=[]
-        func render<V:View>(_ view:V,name:String,size:NSSize)throws {
+        func render<V:View>(_ view:V,name:String,size:NSSize,dark:Bool?=nil)throws {
             let host=NSHostingView(rootView:view);host.frame=NSRect(origin:.zero,size:size)
+            if let dark { host.appearance=NSAppearance(named:dark ? .darkAqua : .aqua) }
             let window=NSWindow(contentRect:NSRect(origin:CGPoint(x:10000,y:10000),size:size),styleMask:[.borderless],backing:.buffered,defer:false)
             window.contentView=host;retained.append(window)
             host.layoutSubtreeIfNeeded()
@@ -36,6 +37,13 @@ func runUISmoke(output: URL) {
             try render(GroupFrameView(controller:controller,groupID:id),name:"tab-bar",size:NSSize(width:908,height:636))
             controller.settings.frameStyle="catppuccin";controller.settings.frameColor="mauve"
             try render(GroupFrameView(controller:controller,groupID:id),name:"tab-bar-catppuccin",size:NSSize(width:908,height:636))
+            for color in ["mauve","rosewater","blue","dark"] {
+                controller.settings.frameColor=color
+                for dark in [false,true] {
+                    try render(GroupFrameView(controller:controller,groupID:id).frame(height:80,alignment:.top),name:"strip-\(color)-\(dark ? "dark":"light")",size:NSSize(width:908,height:80),dark:dark)
+                }
+            }
+            controller.settings.frameColor="mauve"
             try render(FrameStylePicker(controller:controller).padding(18).frame(width:340),name:"frame-style-picker",size:NSSize(width:340,height:260))
         }
         let result:[String:Any]=["status":"passed","rendered":["settings","window-picker","search","tab-bar"],"windows":controller.windows.count,"groups":controller.groups.count,"liveWindowActions":0]

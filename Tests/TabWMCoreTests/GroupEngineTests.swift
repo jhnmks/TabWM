@@ -119,6 +119,30 @@ final class GroupEngineTests: XCTestCase {
         XCTAssertTrue(engine.groups[0].isLocked)
         XCTAssertTrue(engine.groups[0].members.contains(engine.groups[0].activeWindowID))
     }
+    func testShiftMovesTabOnePlaceAndWraps() {
+        let engine = GroupEngine()
+        engine.group(window(2), with: window(1)); engine.group(window(3), with: window(1))
+        XCTAssertEqual(engine.groups[0].members, [1, 2, 3])
+        engine.shift(3, by: -1); XCTAssertEqual(engine.groups[0].members, [1, 3, 2])
+        engine.shift(3, by: -1); XCTAssertEqual(engine.groups[0].members, [3, 1, 2])
+        engine.shift(3, by: -1); XCTAssertEqual(engine.groups[0].members, [1, 2, 3])
+        engine.shift(3, by: 1); XCTAssertEqual(engine.groups[0].members, [3, 1, 2])
+        engine.setLocked(engine.groups[0].id, locked: true)
+        engine.shift(3, by: 1); XCTAssertEqual(engine.groups[0].members, [3, 1, 2])
+    }
+    func testLeaderControlShortcutsParseAndSurviveValidation() throws {
+        let defaults = AppSettings()
+        XCTAssertEqual(SettingsFile.describe(defaults.binding(for: .moveTabLeft)), "leader+ctrl+left")
+        XCTAssertEqual(SettingsFile.describe(defaults.binding(for: .moveTabRight)), "leader+ctrl+right")
+        let text = SettingsFile.text(defaults)
+        XCTAssertTrue(text.contains("move-tab-left"))
+        let parsed = try SettingsFile.settings(from: "[shortcuts]\nmove-tab-left = \"leader+ctrl+shift+H\"\n")
+        XCTAssertEqual(parsed.binding(for: .moveTabLeft), ShortcutBinding(keyCode: 4, modifiers: KeyModifier.control | KeyModifier.shift))
+        var settings = AppSettings()
+        settings.shortcuts = [ShortcutAction.moveTabRight.rawValue: ShortcutBinding(keyCode: 124, modifiers: KeyModifier.control | KeyModifier.command)]
+        settings.normalize()
+        XCTAssertEqual(settings.binding(for: .moveTabRight), ShortcutBinding(keyCode: 124, modifiers: KeyModifier.control))
+    }
     func testEvictDissolvesSingletonGroupImmediately() {
         let engine = GroupEngine()
         engine.group(window(1), with: window(2))

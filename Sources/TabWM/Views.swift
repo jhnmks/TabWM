@@ -351,7 +351,7 @@ struct SettingsView: View {
                 }
             }
             SettingsCard("Shortcuts", symbol: "keyboard",
-                         note: "Click a shortcut to record a new key. With “Use leader” ticked you press the leader key plus that key; untick it to record a full combination with ⌃, ⌥, or ⌘ instead. The switch turns a shortcut off.") {
+                         note: "Click a shortcut to record a new key. With “Use leader” ticked you press the leader key plus that key (⇧ and ⌃ may be added); untick it to record a full combination with ⌃, ⌥, or ⌘ instead. The switch turns a shortcut off.") {
                 ForEach(Array(ShortcutAction.allCases.enumerated()), id: \.element) { index, action in
                     if index > 0 { SettingsDivider() }
                     shortcutRow(action)
@@ -368,6 +368,8 @@ struct SettingsView: View {
         .search: "Opens a search box to find any tab by name.",
         .previousTab: "Shows the tab to the left in the current group.",
         .nextTab: "Shows the tab to the right in the current group.",
+        .moveTabLeft: "Moves the current tab one place to the left. Keep holding the keys and press again to keep moving it.",
+        .moveTabRight: "Moves the current tab one place to the right. Keep holding the keys and press again to keep moving it.",
     ]
     func shortcutRow(_ action: ShortcutAction) -> some View {
         let binding = Binding<ShortcutBinding>(get: { controller.settings.binding(for: action) }, set: { controller.settings.setBinding($0, for: action) })
@@ -376,7 +378,7 @@ struct SettingsView: View {
                 Toggle("Use leader", isOn: Binding(get: { binding.wrappedValue.usesLeader }, set: { uses in
                     var b = binding.wrappedValue; b.usesLeader = uses
                     // A standalone combo needs a modifier; start from the leader chord or ⌃⌥.
-                    if uses { b.modifiers &= KeyModifier.shift }
+                    if uses { b.modifiers &= KeyModifier.leaderExtras }
                     else if b.modifiers & (KeyModifier.control | KeyModifier.option | KeyModifier.command) == 0 {
                         b.modifiers |= AppSettings.leaderChords[controller.settings.leaderKey] ?? (KeyModifier.control | KeyModifier.option)
                     }
@@ -420,6 +422,7 @@ struct SettingsView: View {
             HelpSection(title: "Working with tabs", symbol: "square.on.square") {
                 HelpLine("Click a tab to switch to its window. \(keys(.previousTab)) and \(keys(.nextTab)) step through the tabs of the group you're in.")
                 HelpLine("Drag a tab sideways to reorder it, onto another group's tab strip to move it there, or away from the strip to detach it.")
+                HelpLine("\(keys(.moveTabLeft)) and \(keys(.moveTabRight)) move the current tab one place. Keep holding the keys and press the arrow again to keep moving it.")
                 HelpLine("Hover a tab and click × to close that window.")
                 HelpLine("Right-click a tab to activate, detach, close it, or move it to another group.")
             }

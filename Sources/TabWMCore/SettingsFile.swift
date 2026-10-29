@@ -40,6 +40,7 @@ public enum SettingsFile {
     static let actions: [(ShortcutAction, String)] = [
         (.groupAll, "group-all"), (.addTab, "add-windows"), (.ungroup, "ungroup"),
         (.search, "search"), (.previousTab, "previous-tab"), (.nextTab, "next-tab"),
+        (.moveTabLeft, "move-tab-left"), (.moveTabRight, "move-tab-right"),
     ]
     /// Key codes for names (U.S. layout positions; shortcuts match the physical key).
     static let keyNames: [UInt32: String] = {
@@ -61,7 +62,7 @@ public enum SettingsFile {
         "alt": KeyModifier.option, "shift": KeyModifier.shift, "cmd": KeyModifier.command, "command": KeyModifier.command,
     ]
 
-    /// "leader+G", "leader+shift+right", "cmd+opt+S", or "off".
+    /// "leader+G", "leader+shift+right", "leader+ctrl+left", "cmd+opt+S", or "off".
     public static func describe(_ b: ShortcutBinding) -> String {
         guard b.enabled else { return "off" }
         var parts = b.usesLeader ? ["leader"] : []
@@ -171,6 +172,7 @@ public enum SettingsFile {
             "Write a shortcut as one of:",
             "  \"leader+KEY\"          the leader key, then KEY            e.g. \"leader+G\"",
             "  \"leader+shift+KEY\"    the leader key, then ⇧ and KEY      e.g. \"leader+shift+right\"",
+            "  \"leader+ctrl+KEY\"     the leader key, then ⌃ and KEY      e.g. \"leader+ctrl+left\"",
             "  \"MODIFIERS+KEY\"       a combo of its own, no leader       e.g. \"cmd+opt+S\"",
             "  \"off\"                 no shortcut",
             "",
@@ -194,6 +196,8 @@ public enum SettingsFile {
         lines += block([
             shortcutRow(.previousTab, "Show the tab to the left"),
             shortcutRow(.nextTab, "Show the tab to the right"),
+            shortcutRow(.moveTabLeft, "Move the current tab one place left (keep holding, press again to keep moving)"),
+            shortcutRow(.moveTabRight, "Move the current tab one place right"),
             shortcutRow(.search, "Find any tab by name"),
         ])
 
@@ -265,8 +269,8 @@ public enum SettingsFile {
         ]
         lines += block(style)
         if s.frameStyle == "catppuccin" {
-            lines += ["# color: " + AppSettings.frameColors.prefix(7).joined(separator: " | "),
-                      "#        " + AppSettings.frameColors.dropFirst(7).joined(separator: " | ")]
+            lines += ["# color: " + AppSettings.frameColors.prefix(8).joined(separator: " | "),
+                      "#        " + AppSettings.frameColors.dropFirst(8).joined(separator: " | ")]
         }
         lines += ["", "# ── Size, in points"]
         lines += block([

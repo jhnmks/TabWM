@@ -137,6 +137,18 @@ public final class GroupEngine {
             groups[i].members.insert(id, at: max(0, min(position, groups[i].members.count)))
         }
     }
+    /// Moves a tab one place left (`by: -1`) or right (`by: 1`) in its group's tab order,
+    /// wrapping around at the ends. Locked groups don't change.
+    public func shift(_ id: UInt32, by offset: Int) {
+        guard let i = index(id), !groups[i].isLocked, groups[i].members.count > 1,
+              let position = groups[i].members.firstIndex(of: id) else { return }
+        let count = groups[i].members.count
+        let target = ((position + offset) % count + count) % count
+        change {
+            groups[i].members.remove(at: position)
+            groups[i].members.insert(id, at: target)
+        }
+    }
     /// Transfer one tab without merging its entire donor group. Emits one change event.
     public func moveMember(_ id: UInt32, to target: UInt32, atIndex position: Int) {
         guard let donorIndex = index(id), let destinationIndex = index(target),

@@ -169,7 +169,7 @@ final class ShortcutEngine: @unchecked Sendable {
                 if holding { usedWhileDown = true }
                 // The right-hand leader itself shows up as its modifier; ignore it when matching.
                 let extra = held & ~(holding ? (Self.soloModifierMask[config.leader] ?? 0) : 0)
-                if let action = config.leaderBindings[KeyChord(keyCode: code, modifiers: extra & KeyModifier.shift)], extra & ~KeyModifier.shift == 0 { return action }
+                if let action = config.leaderBindings[KeyChord(keyCode: code, modifiers: extra & KeyModifier.leaderExtras)], extra & ~KeyModifier.leaderExtras == 0 { return action }
             }
         }
         return config.directBindings[KeyChord(keyCode: code, modifiers: held)]
@@ -207,7 +207,7 @@ final class ShortcutEngine: @unchecked Sendable {
                 shortcutLog.notice("shortcut \(action.rawValue, privacy: .public)")
                 swallowedKeys.insert(keyCode)
                 let repeating = event.getIntegerValueField(.keyboardEventAutorepeat) != 0
-                if !repeating || action == .nextTab || action == .previousTab { fire(action) }
+                if !repeating || action.repeats { fire(action) }
                 return nil
             }
         case .keyUp:
@@ -261,7 +261,7 @@ enum KeyNames {
 
 // MARK: - Recorder
 
-/// Records one binding. In leader mode it takes a bare key (Shift allowed); otherwise it
+/// Records one binding. In leader mode it takes a bare key (Shift and Control allowed); otherwise it
 /// takes a full combo with Control, Option, or Command.
 struct ShortcutRecorder: NSViewRepresentable {
     @Binding var binding: ShortcutBinding
@@ -301,7 +301,7 @@ final class ShortcutButton: NSButton {
         if f.contains(.control) { mods |= KeyModifier.control }; if f.contains(.shift) { mods |= KeyModifier.shift }
         var next = binding
         if binding.usesLeader {
-            guard mods & ~KeyModifier.shift == 0 else { NSSound.beep(); return }
+            guard mods & ~KeyModifier.leaderExtras == 0 else { NSSound.beep(); return }
         } else {
             guard mods & (KeyModifier.command | KeyModifier.option | KeyModifier.control) != 0 else { NSSound.beep(); return }
         }
