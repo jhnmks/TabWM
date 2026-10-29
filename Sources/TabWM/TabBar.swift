@@ -45,12 +45,12 @@ final class GroupFramePanel: NSPanel {
 
     var thickness: CGFloat { CGFloat((controller?.settings ?? AppSettings()).frameThickness) }
     var barHeight: CGFloat { CGFloat((controller?.settings ?? AppSettings()).tabBarHeight) }
-    /// Screen-space rectangle of the tab strip; the drop target for dragged tabs.
-    var barRect: NSRect { NSRect(x: frame.minX, y: frame.maxY - barHeight, width: frame.width, height: barHeight) }
+    /// Screen-space rectangle of the tab strip and the shell above it; the drop target for dragged tabs.
+    var barRect: NSRect { NSRect(x: frame.minX, y: frame.maxY - barHeight - thickness, width: frame.width, height: barHeight + thickness) }
     /// Screen-space rectangle of the window inside the ring.
     var holeRect: NSRect {
         NSRect(x: frame.minX + thickness, y: frame.minY + thickness,
-               width: max(0, frame.width - 2 * thickness), height: max(0, frame.height - thickness - barHeight))
+               width: max(0, frame.width - 2 * thickness), height: max(0, frame.height - 2 * thickness - barHeight))
     }
 
     func update(_ group: TabWMCore.WindowGroup) {
@@ -69,7 +69,7 @@ final class GroupFramePanel: NSPanel {
         let t = thickness, bar = barHeight
         let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
         let rect = NSRect(x: windowFrame.minX - t, y: primaryHeight - windowFrame.maxY - t,
-                          width: windowFrame.width + 2 * t, height: windowFrame.height + t + bar).integral
+                          width: windowFrame.width + 2 * t, height: windowFrame.height + 2 * t + bar).integral
         if frame != rect {
             if rect.size == lastSize {
                 // A pure move never relayouts the content.
@@ -104,16 +104,9 @@ struct GroupFrameView: View {
             let shape = RoundedRectangle(cornerRadius: FrameMetrics.windowCornerRadius + t, style: .continuous)
             ZStack(alignment: .top) {
                 if controller.settings.frameStyle == "catppuccin" {
-                    // The accent color runs all the way around the group; the strip sits inside it.
-                    let accent = Catppuccin.accent(controller.settings.frameColor)
-                    ZStack(alignment: .top) {
-                        accent
-                        UnevenRoundedRectangle(topLeadingRadius: FrameMetrics.windowCornerRadius, topTrailingRadius: FrameMetrics.windowCornerRadius, style: .continuous)
-                            .fill(Catppuccin.strip)
-                            .frame(height: max(0, bar - t))
-                            .padding([.horizontal, .top], t)
-                    }
-                    .mask { FrameRing(thickness: t, barHeight: bar).fill(style: FillStyle(eoFill: true)) }
+                    // One solid accent shell around the tab strip and the window.
+                    Catppuccin.accent(controller.settings.frameColor)
+                        .mask { FrameRing(thickness: t, barHeight: bar).fill(style: FillStyle(eoFill: true)) }
                 } else {
                     Color.clear
                         .liquidGlass(in: shape)
@@ -121,21 +114,22 @@ struct GroupFrameView: View {
                 }
                 TabStripView(controller: controller, group: group)
                     .frame(height: bar)
-                    .padding(.horizontal, t)
+                    .padding([.horizontal, .top], t)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 }
 
-/// The frame outline minus the window-shaped hole, filled even-odd.
+/// The outer shell minus the window-shaped hole, filled even-odd. The shell is equally thick
+/// on every side: above the tab strip, and left, right, and below the window.
 struct FrameRing: Shape {
     let thickness: CGFloat
     let barHeight: CGFloat
     func path(in rect: CGRect) -> Path {
         var path = Path(roundedRect: rect, cornerRadius: FrameMetrics.windowCornerRadius + thickness, style: .continuous)
-        let hole = CGRect(x: rect.minX + thickness, y: rect.minY + barHeight,
-                          width: rect.width - 2 * thickness, height: rect.height - barHeight - thickness)
+        let hole = CGRect(x: rect.minX + thickness, y: rect.minY + thickness + barHeight,
+                          width: rect.width - 2 * thickness, height: rect.height - barHeight - 2 * thickness)
         if hole.width > 0, hole.height > 0 {
             path.addPath(Path(roundedRect: hole, cornerRadius: FrameMetrics.windowCornerRadius, style: .continuous))
         }
@@ -218,7 +212,14 @@ struct TabItemView: View {
     })
 
     var catppuccin: Bool { controller.settings.frameStyle == "catppuccin" }
-    var selectedFill: Color { catppuccin ? Catppuccin.surface0 : Self.activeFill }
+    var selectedFill: Color { catppuccin ? Catppuccin.base : Self.activeFill }
+    /// Color mode: every tab is a card on the accent shell; the others are faded.
+    var fill: Color {
+        if active || dragging { return selectedFill }
+        if catppuccin { return Catppuccin.base.opacity(hovering ? 0.75 : 0.5) }
+        return hovering ? Color.primary.opacity(0.07) : Color.clear
+    }
+    var shadowOpacity: Double { active || dragging ? (catppuccin ? 0.3 : 0.14) : 0 }
 
     var body: some View {
         let info = controller.window(id)
@@ -233,18 +234,13 @@ struct TabItemView: View {
             if controller.settings.showBadges, let info { DockBadgeView(badges: controller.badges, bundleID: info.bundleID) }
             Spacer(minLength: 0)
         }
+        .opacity(catppuccin && !active && !dragging && !hovering ? 0.7 : 1)
         .padding(.horizontal, 10)
         .frame(minWidth: 48, maxWidth: 200, maxHeight: .infinity)
         .background {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(active || dragging ? selectedFill : hovering ? Color.primary.opacity(0.07) : Color.clear)
-                .overlay(alignment: .bottom) {
-                    // Catppuccin: the selected tab is underlined in the border color.
-                    if catppuccin && active {
-                        Capsule().fill(Catppuccin.accent(controller.settings.frameColor)).frame(height: 2).padding(.horizontal, 8)
-                    }
-                }
-                .shadow(color: .black.opacity(active || dragging ? 0.14 : 0), radius: dragging ? 8 : 1.5, y: dragging ? 3 : 0.5)
+                .fill(fill)
+                .shadow(color: .black.opacity(shadowOpacity), radius: dragging ? 8 : (catppuccin ? 3 : 1.5), y: dragging ? 3 : (catppuccin ? 1.5 : 0.5))
         }
         .overlay(alignment: .trailing) {
             if hovering && !dragging {

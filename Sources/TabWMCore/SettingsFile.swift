@@ -271,7 +271,7 @@ public enum SettingsFile {
         lines += ["", "# ── Size, in points"]
         lines += block([
             Row(about: "Height of the bar with the tabs", key: "tab-strip-height", value: n(s.tabBarHeight), options: "24 – 42"),
-            Row(about: "Width of the edge around the window; 0 hides it", key: "border-width", value: n(s.frameThickness), options: "0 – 10"),
+            Row(about: "Width of the shell around the tabs and window; 0 hides it", key: "border-width", value: n(s.frameThickness), options: "0 – 10"),
         ])
         lines += ["", "# ── Tabs"]
         lines += block([

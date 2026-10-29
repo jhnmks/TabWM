@@ -60,7 +60,7 @@ struct PaletteDot: View {
         let catppuccin = controller.settings.frameStyle == "catppuccin"
         Button { open.toggle() } label: {
             Circle()
-                .strokeBorder(catppuccin ? Catppuccin.accent(controller.settings.frameColor) : Color.secondary, lineWidth: 1.5)
+                .strokeBorder(catppuccin ? Catppuccin.text : Color.secondary, lineWidth: 1.5)
                 .frame(width: 11, height: 11)
                 .frame(width: 24, height: 22)
                 .background(hovering ? Color.primary.opacity(0.08) : Color.clear, in: RoundedRectangle(cornerRadius: 7, style: .continuous))

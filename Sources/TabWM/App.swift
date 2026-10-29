@@ -737,10 +737,10 @@ final class AppController: NSObject, ObservableObject, NSMenuDelegate {
         return CGRect(x: v.minX, y: primaryScreenHeight - v.maxY, width: v.width, height: v.height)
     }
     /// The area a group's *window* may occupy on a screen: the visible frame (no menu bar,
-    /// no Dock) minus the tab strip on top and the border on the other sides.
+    /// no Dock) minus the outer shell on every side and the tab strip on top.
     func windowArea(of screen: NSScreen) -> CGRect {
         let a = visibleArea(of: screen), t = settings.frameThickness, bar = settings.tabBarHeight
-        return CGRect(x: a.minX + t, y: a.minY + bar, width: a.width - 2 * t, height: a.height - bar - t)
+        return CGRect(x: a.minX + t, y: a.minY + t + bar, width: a.width - 2 * t, height: a.height - bar - 2 * t)
     }
     /// A grouped window moved, resized, or was restacked, reported by the window server the
     /// moment it happens. Groups never move; `checkMembers` decides what a moved or resized

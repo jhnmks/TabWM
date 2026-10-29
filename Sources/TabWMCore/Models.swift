@@ -97,7 +97,7 @@ public struct AppSettings: Codable, Equatable {
     public var settingsRevision = 3
     public var holdDelay = 0.0
     public var tabBarHeight = 29.0
-    /// Width of the border drawn around the left, right, and bottom of a group.
+    /// Width of the outer shell around a group: above the tab strip and around the window.
     public var frameThickness = 2.0
     public var tabBarOpacity = 1.0
     /// How the tab strip and border are drawn: "glass" (Liquid Glass) or "catppuccin" (solid

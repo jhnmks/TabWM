@@ -274,7 +274,7 @@ struct SettingsView: View {
                 }
                 SettingsDivider()
                 SettingRow("Border width",
-                           detail: "How thick the glass edge around the left, right, and bottom of a group is. 0 hides it.") {
+                           detail: "How thick the outer shell around the tabs and the window is, the same on every side. 0 hides it.") {
                     sliderControl(value: $controller.settings.frameThickness, in: 0...10, step: 1, label: "\(Int(controller.settings.frameThickness)) pt")
                 }
             }
