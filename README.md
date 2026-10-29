@@ -2,8 +2,8 @@
 
 Tabs for any window on your Mac. Put windows from different apps into one group and switch between them like browser tabs.
 
-- Every group fills the screen, below the menu bar and above the Dock, inside one frame: a tab strip on top and a thin border around the rest.
-- Liquid Glass frames, or solid colors from the [Catppuccin](https://catppuccin.com) palette (Latte in light mode, Mocha in dark mode).
+- Every group fills the screen, below the menu bar and above the Dock, inside one frame: a shell of even width around the tab strip and the window.
+- Liquid Glass frames, or solid colors from the [Catppuccin](https://catppuccin.com) palette (Latte in light mode, Mocha in dark mode), plus a neutral dark (#1E1E2D).
 - Keyboard-first: one leader key (🌐 Globe by default) for every shortcut.
 - One plain-text settings file you can edit, sync, or keep in your dotfiles.
 
@@ -11,7 +11,9 @@ Requires macOS 15 or later. Liquid Glass needs macOS 26; earlier versions get a 
 
 ## Install
 
-Build it from source (see [Building](#building)), then move `dist/TabWM.app` to `/Applications` and open it.
+Download `TabWM-1.3.zip` from the [latest release](https://github.com/jhnmks/TabWM/releases/latest), unzip it, move `TabWM.app` to `/Applications`, and open it. Or build it from source (see [Building](#building)).
+
+TabWM isn't notarized, so macOS blocks the first launch. Open **System Settings → Privacy & Security** and click **Open Anyway**, or run `xattr -dr com.apple.quarantine /Applications/TabWM.app`.
 
 On first launch, open **Settings → General** and allow:
 
@@ -35,7 +37,9 @@ Turn off Stage Manager: grouping pauses while it is on. If you use 🌐 as the l
 **Work with tabs**
 
 - Click a tab, or press 🌐 ← / 🌐 →, to switch.
+- Press 🌐 ⌃ ← / 🌐 ⌃ → to move the current tab one place. Keep holding 🌐 ⌃ and press the arrow again to keep moving it.
 - Drag a tab to reorder it, onto another group's strip to move it, or off the strip to detach it.
+- Closing a window or quitting its app removes its tab right away.
 - Press 🌐 T or the + button to add ungrouped windows to the group.
 - Press 🌐 S or the search button to find any tab by name, with a large live preview.
 
@@ -56,8 +60,9 @@ Turn off Stage Manager: grouping pauses while it is on. If you use 🌐 as the l
 | 🌐 U | Ungroup the current group |
 | 🌐 S | Search tabs |
 | 🌐 ← / 🌐 → | Previous / next tab |
+| 🌐 ⌃ ← / 🌐 ⌃ → | Move the current tab left / right |
 
-Hold the leader and press the key, or tap the leader and press the key within a second. Change the leader once (Globe, a right-hand modifier, or a chord such as ⌃⌥) and every shortcut follows. Any shortcut can use its own combo instead, or be turned off.
+Hold the leader and press the key, or tap the leader and press the key within a second. Leader shortcuts can add ⇧ or ⌃ (`leader+shift+KEY`, `leader+ctrl+KEY`). Change the leader once (Globe, a right-hand modifier, or a chord such as ⌃⌥) and every shortcut follows. Any shortcut can use its own combo instead, or be turned off.
 
 ## Settings file
 
@@ -70,12 +75,13 @@ leader     = "globe"   # globe | right-cmd | right-opt | right-ctrl | ctrl+opt |
 tap-leader = true      # true | false
 
 [shortcuts]
-group-all   = "leader+G"   # "leader+KEY" | "MODIFIERS+KEY" | "off"
-search      = "leader+S"   # "leader+KEY" | "MODIFIERS+KEY" | "off"
+group-all     = "leader+G"           # "leader+KEY" | "MODIFIERS+KEY" | "off"
+move-tab-left = "leader+ctrl+left"   # "leader+KEY" | "MODIFIERS+KEY" | "off"
 
 [appearance]
-style        = "glass"   # glass | color
-border-width = 2         # 0 – 10
+style        = "color"   # glass | color
+color        = "mauve"   # rosewater | flamingo | pink | mauve | … | lavender | dark
+border-width = 2         # 0 – 10: the shell around the tabs and the window
 ```
 
 Anything you leave out uses its default; **Settings → General → Restore Defaults** resets everything. Your open groups are kept separately, in `~/Library/Application Support/TabWM`.
