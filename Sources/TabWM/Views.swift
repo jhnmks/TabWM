@@ -159,6 +159,13 @@ struct SettingsView: View {
                         Text(String(format: "%.2f s", controller.settings.holdDelay)).monospacedDigit().frame(width: 52, alignment: .trailing)
                     }
                 }
+                SettingsDivider()
+                SettingRow("When one window is left",
+                           detail: "When the other windows in a group close or leave. “Ungroup” removes the frame and frees the window. “Keep the group” keeps its frame and tab strip, so you can add windows to it again.") {
+                    Picker("", selection: $controller.settings.singleWindowPolicy) {
+                        Text("Ungroup").tag("dissolve"); Text("Keep the group").tag("keep")
+                    }.labelsHidden().fixedSize()
+                }
             }
             SettingsCard("When a window leaves the screen", symbol: "rectangle.on.rectangle") {
                 SettingRow("Full screen",
@@ -429,6 +436,7 @@ struct SettingsView: View {
             HelpSection(title: "Managing groups", symbol: "slider.horizontal.3") {
                 HelpLine("Right-click the tab strip to rename, lock, move to another display, add windows, ungroup, or close all windows.")
                 HelpLine("\(keys(.ungroup)) ungroups the group you're in. Its windows stay where they are.")
+                HelpLine("When only one window is left, the group is ungrouped. To keep a one-tab group you can add windows to again, choose Grouping → When one window is left → Keep the group.")
                 HelpLine("Locked groups can't be changed by dragging or ungrouping until you unlock them. A window in a locked group that gets moved or resized is put back.")
             }
             HelpSection(title: "Searching tabs", symbol: "magnifyingglass") {
@@ -458,7 +466,7 @@ struct SettingsView: View {
     // MARK: About
 
     static var appVersion: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.3"
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.4"
     }
 
     var about: some View {

@@ -462,6 +462,11 @@ final class AppController: NSObject, ObservableObject, NSMenuDelegate {
     }
     func applySettings() {
         settings.normalize()
+        let keepLast = settings.singleWindowPolicy == "keep"
+        if engine.keepsLastWindow != keepLast {
+            engine.keepsLastWindow = keepLast
+            if !keepLast { engine.dissolveSingletons() }
+        }
         if appliedLoginPreference != settings.launchAtLogin {
             let service = SMAppService.mainApp
             loginItemMessage = nil

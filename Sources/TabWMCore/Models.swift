@@ -134,6 +134,9 @@ public struct AppSettings: Codable, Equatable {
     /// Detaching on Space changes misfired while macOS animates the switch, so the default
     /// keeps such windows as suspended tabs.
     public var offSpacePolicy = "suspend"
+    /// When only one window is left in a group: "dissolve" (ungroup it) or "keep" (keep a
+    /// one-tab group that other windows can join again).
+    public var singleWindowPolicy = "dissolve"
     public var launchAtLogin = false
     /// The key every leader shortcut inherits. Solo keys ("globe", "rightCommand",
     /// "rightOption", "rightControl") are held or tapped; chords ("controlOption",
@@ -163,7 +166,7 @@ public struct AppSettings: Codable, Equatable {
         shortcuts[action.rawValue] = binding == Self.defaultShortcuts[action] ? nil : binding
     }
     private enum CodingKeys: String, CodingKey {
-        case modifier, settingsRevision, holdDelay, tabBarHeight, frameThickness, tabBarOpacity, frameStyle, frameColor, appearance, showBadges, searchEnabled, excludedBundleIDs, newWindowPolicy, fullscreenPolicy, offSpacePolicy, launchAtLogin
+        case modifier, settingsRevision, holdDelay, tabBarHeight, frameThickness, tabBarOpacity, frameStyle, frameColor, appearance, showBadges, searchEnabled, excludedBundleIDs, newWindowPolicy, fullscreenPolicy, offSpacePolicy, singleWindowPolicy, launchAtLogin
         case leaderKey, leaderSequence, shortcuts
     }
     public init(from decoder: Decoder) throws {
@@ -195,6 +198,7 @@ public struct AppSettings: Codable, Equatable {
         offSpacePolicy = try values.decodeIfPresent(String.self, forKey: .offSpacePolicy) ?? offSpacePolicy
         // Revision 2: the off-Space default became "suspend"; move files still on the old default.
         if revision < 2 && offSpacePolicy == "detach" { offSpacePolicy = "suspend" }
+        singleWindowPolicy = try values.decodeIfPresent(String.self, forKey: .singleWindowPolicy) ?? singleWindowPolicy
         launchAtLogin = try values.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? launchAtLogin
         leaderKey = try values.decodeIfPresent(String.self, forKey: .leaderKey) ?? leaderKey
         leaderSequence = try values.decodeIfPresent(Bool.self, forKey: .leaderSequence) ?? leaderSequence

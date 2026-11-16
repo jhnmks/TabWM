@@ -11,7 +11,7 @@ Requires macOS 15 or later. Liquid Glass needs macOS 26; earlier versions get a 
 
 ## Install
 
-Download `TabWM-1.3.zip` from the [latest release](https://github.com/jhnmks/TabWM/releases/latest), unzip it, move `TabWM.app` to `/Applications`, and open it. Or build it from source (see [Building](#building)).
+Download `TabWM-1.4.zip` from the [latest release](https://github.com/jhnmks/TabWM/releases/latest), unzip it, move `TabWM.app` to `/Applications`, and open it. Or build it from source (see [Building](#building)).
 
 TabWM isn't notarized, so macOS blocks the first launch. Open **System Settings → Privacy & Security** and click **Open Anyway**, or run `xattr -dr com.apple.quarantine /Applications/TabWM.app`.
 
@@ -47,6 +47,7 @@ Turn off Stage Manager: grouping pauses while it is on. If you use 🌐 as the l
 
 - Groups never move or resize; every window that joins takes the group's size.
 - Moving or resizing a grouped window yourself (title bar, edges, zoom, tiling or window-manager shortcuts) takes it out of the group. An app resizing itself is put back.
+- When only one window is left, the group is ungrouped, or kept as a one-tab group you can add windows to again, as you choose.
 - Inactive tabs wait behind the visible one. Full-screen windows and windows moved to another desktop either stay as paused tabs or leave the group, as you choose.
 - The menu bar menu lists your groups by the desktop they're on.
 - Groups come back after you relaunch TabWM, until the Mac restarts.

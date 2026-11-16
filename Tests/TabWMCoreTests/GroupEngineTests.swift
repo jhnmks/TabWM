@@ -143,6 +143,30 @@ final class GroupEngineTests: XCTestCase {
         settings.normalize()
         XCTAssertEqual(settings.binding(for: .moveTabRight), ShortcutBinding(keyCode: 124, modifiers: KeyModifier.control))
     }
+    func testKeepingLastWindowLeavesOneTabGroupUntilEmpty() throws {
+        let engine = GroupEngine(); engine.keepsLastWindow = true
+        engine.group(window(1), with: window(2)); engine.group(window(3), with: window(2))
+        engine.detach(3); engine.evict(1)
+        XCTAssertEqual(engine.groups.count, 1)
+        XCTAssertEqual(engine.groups[0].members, [2])
+        XCTAssertEqual(engine.groups[0].activeWindowID, 2)
+        // Another window can join the one-tab group.
+        engine.group(window(4), with: window(2))
+        XCTAssertEqual(Set(engine.groups[0].members), [2, 4])
+        engine.detach(4); engine.detach(2)
+        XCTAssertTrue(engine.groups.isEmpty)
+        // Turning the option off dissolves one-tab groups.
+        engine.group(window(5), with: window(6)); engine.detach(5)
+        XCTAssertEqual(engine.groups.count, 1)
+        engine.keepsLastWindow = false; engine.dissolveSingletons()
+        XCTAssertTrue(engine.groups.isEmpty)
+        // The choice round-trips through the settings file.
+        var settings = AppSettings(); settings.singleWindowPolicy = "keep"
+        let text = SettingsFile.text(settings)
+        XCTAssertTrue(text.contains(#"when-one-window-left = "keep-group""#))
+        XCTAssertEqual(try SettingsFile.settings(from: text).singleWindowPolicy, "keep")
+        XCTAssertEqual(try SettingsFile.settings(from: "[grouping]\nwhen-one-window-left = \"bogus\"\n").singleWindowPolicy, "dissolve")
+    }
     func testEvictDissolvesSingletonGroupImmediately() {
         let engine = GroupEngine()
         engine.group(window(1), with: window(2))
@@ -291,11 +315,12 @@ final class GroupEngineTests: XCTestCase {
         settings.showBadges = false; settings.searchEnabled = false
         settings.excludedBundleIDs = ["com.apple.dock", "app.mine"]
         settings.newWindowPolicy = "off"; settings.fullscreenPolicy = "detach"; settings.offSpacePolicy = "detach"
+        settings.singleWindowPolicy = "keep"
         settings.launchAtLogin = true; settings.leaderKey = "rightOption"; settings.leaderSequence = false
         settings.setBinding(ShortcutBinding(keyCode: 1, modifiers: KeyModifier.command | KeyModifier.option, usesLeader: false), for: .search)
         settings.setBinding(ShortcutBinding(keyCode: 17, enabled: false), for: .addTab)
         settings.setBinding(ShortcutBinding(keyCode: 124, modifiers: KeyModifier.shift), for: .nextTab)
-        XCTAssertEqual(Mirror(reflecting: settings).children.count, 19)
+        XCTAssertEqual(Mirror(reflecting: settings).children.count, 20)
         let text = SettingsFile.text(settings)
         XCTAssertEqual(try SettingsFile.settings(from: text), settings)
         // Only choices: no version or app name; keys in words; the leader written once.

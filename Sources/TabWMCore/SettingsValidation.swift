@@ -10,6 +10,7 @@ extension AppSettings {
         if !["suspend", "detach"].contains(fullscreenPolicy) { fullscreenPolicy = "suspend" }
         if !["off", "focused"].contains(newWindowPolicy) { newWindowPolicy = "focused" }
         if !["suspend", "detach"].contains(offSpacePolicy) { offSpacePolicy = "suspend" }
+        if !["dissolve", "keep"].contains(singleWindowPolicy) { singleWindowPolicy = "dissolve" }
         if !["system", "light", "dark"].contains(appearance) { appearance = "system" }
         if !["glass", "catppuccin"].contains(frameStyle) { frameStyle = "glass" }
         if !Self.frameColors.contains(frameColor) { frameColor = d.frameColor }

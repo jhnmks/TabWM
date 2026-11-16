@@ -36,6 +36,7 @@ public enum SettingsFile {
     static let groupingKeys = ["leader": "leader", "shift": "shift", "control": "ctrl", "option": "opt", "command": "cmd", "none": "none"]
     static let newWindows = ["focused": "join-current-group", "off": "stay-alone"]
     static let policies = ["suspend": "keep-tab", "detach": "remove"]
+    static let lastWindow = ["dissolve": "ungroup", "keep": "keep-group"]
     static let styles = ["glass": "glass", "catppuccin": "color"]
     static let actions: [(ShortcutAction, String)] = [
         (.groupAll, "group-all"), (.addTab, "add-windows"), (.ungroup, "ungroup"),
@@ -213,6 +214,9 @@ public enum SettingsFile {
                 options: choices(["leader", "shift", "ctrl", "opt", "cmd", "none"])),
             Row(about: "Seconds before the \"Release to group\" highlight appears",
                 key: "drag-delay", value: n(s.holdDelay), options: "0 – 1.5"),
+            Row(about: "When only one window is left in a group: ungroup it, or keep a one-tab group",
+                key: "when-one-window-left", value: q(lastWindow[s.singleWindowPolicy] ?? "ungroup"),
+                options: choices(["ungroup", "keep-group"])),
         ])
         lines += ["", "# ── When a window leaves the screen", "# keep-tab = stays in the group, paused · remove = leaves the group"]
         lines += block([
@@ -320,6 +324,7 @@ public enum SettingsFile {
         if let v = number("grouping.drag-delay") { s.holdDelay = v }
         if let v = pick("grouping.when-full-screen", policies) { s.fullscreenPolicy = v }
         if let v = pick("grouping.when-moved-to-another-desktop", policies) { s.offSpacePolicy = v }
+        if let v = pick("grouping.when-one-window-left", lastWindow) { s.singleWindowPolicy = v }
         if let v = bool("grouping.tab-search") { s.searchEnabled = v }
         if let v = table["grouping.ignored-apps"] as? [String] { s.excludedBundleIDs = v }
         if let v = pick("appearance.style", styles) { s.frameStyle = v }

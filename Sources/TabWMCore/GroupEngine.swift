@@ -2,15 +2,23 @@ import Foundation
 import CoreGraphics
 
 /// Group membership and tab state. Locking prevents explicit structure edits; liveness
-/// cleanup still applies. Single-member groups are dissolved. The host owns all actual
-/// window operations.
+/// cleanup still applies. Single-member groups are dissolved unless `keepsLastWindow` is set;
+/// empty groups always are. The host owns all actual window operations.
 public final class GroupEngine {
     public private(set) var groups: [WindowGroup] = []
     public var onChange: (() -> Void)?
     /// A window must be missing from this many consecutive censuses before it is dropped.
     public let missingSweepLimit: Int
     private var missingSweeps: [UInt32: Int] = [:]
+    /// Whether a group whose other windows all left stays as a one-tab group.
+    public var keepsLastWindow = false
+    /// The fewest members a group may have.
+    private var minimumMembers: Int { keepsLastWindow ? 1 : 2 }
     public init(missingSweepLimit: Int = 6) { self.missingSweepLimit = max(1, missingSweepLimit) }
+    /// Dissolves every one-window group (used when `keepsLastWindow` is turned off).
+    public func dissolveSingletons() {
+        change { groups.removeAll { $0.members.count < 2 } }
+    }
     /// Reject malformed/singleton groups and keep each window in its first valid group.
     public func restore(_ saved: [WindowGroup]) {
         change {
@@ -22,7 +30,7 @@ public final class GroupEngine {
                       group.frame.width.isFinite, group.frame.height.isFinite else { continue }
                 var local = Set<UInt32>()
                 group.members = group.members.filter { $0 != 0 && !windowIDs.contains($0) && local.insert($0).inserted }
-                guard group.members.count >= 2 else { continue }
+                guard group.members.count >= minimumMembers else { continue }
                 if !group.members.contains(group.activeWindowID) { group.activeWindowID = group.members[0] }
                 let valid = Set(group.members)
                 group.suspended.formIntersection(valid); group.minimized.formIntersection(valid)
@@ -111,7 +119,7 @@ public final class GroupEngine {
         groups[i].members.removeAll { $0 == id }
         groups[i].mru.removeAll { $0 == id }
         groups[i].suspended.remove(id); groups[i].minimized.remove(id)
-        guard groups[i].members.count >= 2 else { groups.remove(at: i); return }
+        guard groups[i].members.count >= minimumMembers else { groups.remove(at: i); return }
         if groups[i].activeWindowID == id {
             let available = groups[i].mru.first { !groups[i].suspended.contains($0) && !groups[i].minimized.contains($0) }
             groups[i].activeWindowID = available ?? groups[i].mru.first ?? groups[i].members[0]
