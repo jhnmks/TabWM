@@ -194,16 +194,7 @@ final class WindowSystem {
             return CensusResult(windows: [], elements: [:], focusedWindowID: nil, zOrder: [],
                                 unavailablePIDs: Set(input.apps.map(\.processIdentifier)), resizable: input.knownResizable, missionControlActive: false, nativeTabbedHosts: [], nativeTabVerdictUnknownHosts: [])
         }
-        // Mission Control and App Exposé draw a screen-sized Dock window above everything.
-        let missionControlActive = records.contains { record in
-            guard record[kCGWindowOwnerName as String] as? String == "Dock",
-                  record[kCGWindowIsOnscreen as String] as? Bool == true,
-                  let layer = record[kCGWindowLayer as String] as? NSNumber,
-                  layer.int32Value != CGWindowLevelForKey(.dockWindow),
-                  let bounds = record[kCGWindowBounds as String] as? NSDictionary,
-                  let frame = CGRect(dictionaryRepresentation:bounds) else { return false }
-            return input.screenSizes.contains { frame.width >= $0.width * 0.9 && frame.height >= $0.height * 0.9 }
-        }
+        let missionControlActive = Self.overviewOpen(in: records, screenSizes: input.screenSizes)
         let zOrder = records.compactMap { ($0[kCGWindowNumber as String] as? NSNumber)?.uint32Value }
         var censusUnavailablePIDs: Set<Int32> = []
         var focusedWindowID: UInt32?
@@ -369,6 +360,24 @@ final class WindowSystem {
               let element = checkedElement(id) else { return }
         let pid = windows.first(where: { $0.id == id })?.pid ?? 0
         writer.submit(id: id, pid: pid, element: element, frame: frame, priority: priority)
+    }
+    /// Mission Control and App Exposé draw a screen-sized Dock window above everything.
+    nonisolated static func overviewOpen(in records: [[String: Any]], screenSizes: [CGSize]) -> Bool {
+        records.contains { record in
+            guard record[kCGWindowOwnerName as String] as? String == "Dock",
+                  record[kCGWindowIsOnscreen as String] as? Bool == true,
+                  let layer = record[kCGWindowLayer as String] as? NSNumber,
+                  layer.int32Value != CGWindowLevelForKey(.dockWindow),
+                  let bounds = record[kCGWindowBounds as String] as? NSDictionary,
+                  let frame = CGRect(dictionaryRepresentation: bounds) else { return false }
+            return screenSizes.contains { frame.width >= $0.width * 0.9 && frame.height >= $0.height * 0.9 }
+        }
+    }
+    /// Whether Mission Control or App Exposé is open right now, from the live window list.
+    /// The census copy (`missionControlActive`) can be up to a second old.
+    static func overviewOpenNow() -> Bool {
+        guard let records = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else { return false }
+        return overviewOpen(in: records, screenSizes: NSScreen.screens.map(\.frame.size))
     }
     /// Current front-to-back order of on-screen windows, straight from the window server.
     /// The census copy can be 350 ms old, which is wrong right after a click raises a window.

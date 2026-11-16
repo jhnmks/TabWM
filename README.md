@@ -11,7 +11,7 @@ Requires macOS 15 or later. Liquid Glass needs macOS 26; earlier versions get a 
 
 ## Install
 
-Download `TabWM-1.4.zip` from the [latest release](https://github.com/jhnmks/TabWM/releases/latest), unzip it, move `TabWM.app` to `/Applications`, and open it. Or build it from source (see [Building](#building)).
+Download `TabWM-1.5.zip` from the [latest release](https://github.com/jhnmks/TabWM/releases/latest), unzip it, move `TabWM.app` to `/Applications`, and open it. Or build it from source (see [Building](#building)).
 
 TabWM isn't notarized, so macOS blocks the first launch. Open **System Settings → Privacy & Security** and click **Open Anyway**, or run `xattr -dr com.apple.quarantine /Applications/TabWM.app`.
 

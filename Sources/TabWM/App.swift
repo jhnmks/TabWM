@@ -443,6 +443,11 @@ final class AppController: NSObject, ObservableObject, NSMenuDelegate {
     func engineChanged() {
         let previous = groups
         groups = engine.groups
+        // Leave a trace of every window that stops being a member, whatever removed it.
+        let left = Set(previous.flatMap(\.members)).subtracting(groups.flatMap(\.members))
+        for id in left {
+            membershipLog.notice("\(self.window(id)?.appName ?? "window \(id)", privacy: .public) is no longer in a group")
+        }
         windowEvents.watch(Set(groups.flatMap(\.members)))
         if Set(previous.map(\.id)) != Set(groups.map(\.id)) { updateGroupDesktops() }
         for group in groups where !repointingNativeTabs {
@@ -608,23 +613,32 @@ final class AppController: NSObject, ObservableObject, NSMenuDelegate {
     func reconcileSpaces() {
         // Right after a Space switch windows can report off-screen while the switch animates.
         let settling = ProcessInfo.processInfo.systemUptime - spaceSettledAt < 2
-        guard settings.offSpacePolicy == "detach", !settling, ProcessInfo.processInfo.systemUptime >= displayRecoveryUntil else { offSpaceSince = [:]; return }
+        guard settings.offSpacePolicy == "detach", !settling, ProcessInfo.processInfo.systemUptime >= displayRecoveryUntil,
+              !overviewOpen, !WindowSystem.overviewOpenNow() else { offSpaceSince = [:]; return }
         let now = ProcessInfo.processInfo.systemUptime
         var candidates = Set<UInt32>()
         for group in engine.groups where !group.isLocked {
-            let home = group.members.contains { id in
+            let home = group.members.first { id in
                 guard let w = window(id) else { return false }; return w.isOnScreen && !w.isMinimized && !w.isFullscreen
             }
-            guard home else { continue }
+            // The desktop the group is on, from a member that is visible there.
+            guard let home, let homeSpace = SkyLight.shared.space(of: home) else { continue }
             for id in group.members {
                 guard let w = window(id), !w.isOnScreen, !w.isMinimized, !w.isFullscreen,
                       NSRunningApplication(processIdentifier:w.pid)?.isHidden != true,
                       !system.censusUnavailablePIDs.contains(w.pid),
                       recentMinimizeChanges[id] == nil,
                       !pendingNativeMembers.contains(id) else { continue }
+                // "Not on screen" alone doesn't mean another desktop: App Exposé (its "no windows"
+                // page), hiding, and redraws report it too. Only a window the window server
+                // places on a different desktop has moved.
+                guard let space = SkyLight.shared.space(of: id), space != homeSpace else { continue }
                 candidates.insert(id)
                 if offSpaceSince[id] == nil { offSpaceSince[id] = now }
-                if now - (offSpaceSince[id] ?? now) >= 1 { engine.detach(id) }
+                if now - (offSpaceSince[id] ?? now) >= 1 {
+                    membershipLog.notice("\(w.appName, privacy: .public) left: moved to another desktop (\(space, privacy: .public), group on \(homeSpace, privacy: .public))")
+                    engine.detach(id)
+                }
             }
         }
         offSpaceSince = offSpaceSince.filter { candidates.contains($0.key) }
@@ -765,6 +779,10 @@ final class AppController: NSObject, ObservableObject, NSMenuDelegate {
             handleWindowDestroyed(id)
         case .windowReordered:
             guard let group = engine.group(containing: id) else { return }
+            // Mission Control and App Exposé restack windows to lay out their thumbnails. Those
+            // aren't tab choices: switching tabs here would focus windows mid-overview and then
+            // block the focus sync that should follow what the user actually picked.
+            if WindowSystem.overviewOpenNow() { overviewSeen(); return }
             if group.activeWindowID == id { if let panel = overlays[group.id], panel.isVisible { panel.restack() }; return }
             // A hidden tab was brought forward by something else (Dock, ⌘`, Mission Control):
             // make it the tab. Ignore the echoes of our own tab switches.
@@ -775,6 +793,44 @@ final class AppController: NSObject, ObservableObject, NSMenuDelegate {
         case .windowMoved, .windowResized:
             // Decide once the window stops changing (mid-drag, the mouse-up check decides).
             if engine.group(containing: id) != nil, recentWrites[id] == nil { scheduleMemberCheck() }
+        }
+    }
+    /// Set while Mission Control or App Exposé is open; cleared by the check that follows it.
+    var overviewOpen = false
+    private var overviewWatch: Timer?
+    /// An overview opened: poll briefly until it closes, then follow the window the user picked.
+    func overviewSeen() {
+        guard !overviewOpen else { return }
+        overviewOpen = true
+        membershipLog.notice("overview opened")
+        overviewWatch?.invalidate()
+        overviewWatch = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: true) { [weak self] timer in
+            MainActor.assumeIsolated {
+                guard let self, !WindowSystem.overviewOpenNow() else { return }
+                timer.invalidate(); self.overviewWatch = nil
+                self.overviewClosed()
+            }
+        }
+    }
+    /// The overview closed. Whatever window is frontmost now is the one the user chose: make it
+    /// its group's tab, put the other groups' visible tabs back on top of their own members,
+    /// and redraw every frame.
+    func overviewClosed() {
+        overviewOpen = false
+        // The macOS closing animation is still settling; read the result once it has.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+            guard let self, !self.overviewOpen else { return }
+            let order = WindowSystem.liveZOrder()
+            for group in self.engine.groups {
+                lastActivation[group.id] = 0
+                guard let top = order.first(where: { group.members.contains($0) }) else { continue }
+                if top != group.activeWindowID {
+                    membershipLog.notice("overview closed: tab \(top, privacy: .public) is now in front")
+                    self.engine.activate(top)
+                }
+            }
+            self.updateOverlays()
+            self.system.refresh()
         }
     }
     /// Window closed by user or application; detach immediately instead of waiting for census sweeps.
