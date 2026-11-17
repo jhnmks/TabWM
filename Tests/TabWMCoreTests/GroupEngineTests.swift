@@ -143,6 +143,23 @@ final class GroupEngineTests: XCTestCase {
         settings.normalize()
         XCTAssertEqual(settings.binding(for: .moveTabRight), ShortcutBinding(keyCode: 124, modifiers: KeyModifier.control))
     }
+    func testJumpToTabShortcutDefaultsParsesAndValidates() throws {
+        let defaults = AppSettings()
+        XCTAssertEqual(SettingsFile.describeJump(defaults.jumpToTab), "leader+cmd+NUMBER")
+        XCTAssertTrue(SettingsFile.text(defaults).contains(#"jump-to-tab"#))
+        let parsed = try SettingsFile.settings(from: "[shortcuts]\njump-to-tab = \"leader+ctrl+cmd+NUMBER\"\n")
+        XCTAssertEqual(parsed.jumpToTab, ShortcutBinding(keyCode: 0, modifiers: KeyModifier.control | KeyModifier.command))
+        XCTAssertFalse(try SettingsFile.settings(from: "[shortcuts]\njump-to-tab = \"off\"\n").jumpToTab.enabled)
+        // Bare digits without the leader would steal typing: back to the default, but stay on/off as chosen.
+        var settings = AppSettings()
+        settings.jumpToTab = ShortcutBinding(keyCode: 5, modifiers: KeyModifier.shift, usesLeader: false)
+        settings.normalize()
+        XCTAssertEqual(settings.jumpToTab, AppSettings.defaultJumpToTab)
+        // Option isn't allowed with the leader; it's dropped.
+        settings.jumpToTab = ShortcutBinding(keyCode: 0, modifiers: KeyModifier.command | KeyModifier.option)
+        settings.normalize()
+        XCTAssertEqual(settings.jumpToTab.modifiers, KeyModifier.command)
+    }
     func testKeepingLastWindowLeavesOneTabGroupUntilEmpty() throws {
         let engine = GroupEngine(); engine.keepsLastWindow = true
         engine.group(window(1), with: window(2)); engine.group(window(3), with: window(2))
@@ -320,7 +337,8 @@ final class GroupEngineTests: XCTestCase {
         settings.setBinding(ShortcutBinding(keyCode: 1, modifiers: KeyModifier.command | KeyModifier.option, usesLeader: false), for: .search)
         settings.setBinding(ShortcutBinding(keyCode: 17, enabled: false), for: .addTab)
         settings.setBinding(ShortcutBinding(keyCode: 124, modifiers: KeyModifier.shift), for: .nextTab)
-        XCTAssertEqual(Mirror(reflecting: settings).children.count, 20)
+        settings.jumpToTab = ShortcutBinding(keyCode: 0, modifiers: KeyModifier.control | KeyModifier.option, usesLeader: false)
+        XCTAssertEqual(Mirror(reflecting: settings).children.count, 21)
         let text = SettingsFile.text(settings)
         XCTAssertEqual(try SettingsFile.settings(from: text), settings)
         // Only choices: no version or app name; keys in words; the leader written once.

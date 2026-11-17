@@ -74,6 +74,8 @@ final class GroupFramePanel: NSPanel {
         guard let space = SkyLight.shared.space(of: UInt32(windowNumber)) else { return true }
         return SkyLight.shared.currentSpaces().contains(space)
     }
+
+
     override func orderOut(_ sender: Any?) {
         if isVisible { frameLog.notice("hide \(self.windowNumber, privacy: .public)") }
         super.orderOut(sender)
@@ -227,8 +229,8 @@ struct TabStripView: View {
                     Text(name).font(.system(size: 11, weight: .bold)).foregroundStyle(ink.map { AnyShapeStyle($0.opacity(0.85)) } ?? AnyShapeStyle(.secondary))
                         .lineLimit(1).frame(maxWidth: 110, alignment: .leading).padding(.horizontal, 6)
                 }
-                ForEach(group.members, id: \.self) { id in
-                    TabItemView(controller: controller, group: group, id: id)
+                ForEach(Array(group.members.enumerated()), id: \.element) { index, id in
+                    TabItemView(controller: controller, group: group, id: id, position: index)
                 }
                 Spacer(minLength: 8)
                 if NSScreen.screens.count > 1 {
@@ -259,6 +261,11 @@ struct TabItemView: View {
     @ObservedObject var controller: AppController
     let group: TabWMCore.WindowGroup
     let id: UInt32
+    /// Place in the strip, 0-based; tabs 1–10 can be jumped to by number.
+    var position = 0
+    /// The jump number shown on this tab: "1"…"9", then "0" for the tenth.
+    var number: String? { position < 10 ? String((position + 1) % 10) : nil }
+    var showsNumber: Bool { controller.numberedGroup == group.id && number != nil && !dragging }
     @State private var hovering = false
     @State private var dragOffset: CGSize = .zero
     var active: Bool { group.activeWindowID == id }
@@ -308,7 +315,11 @@ struct TabItemView: View {
                 .shadow(color: .black.opacity(shadowOpacity), radius: dragging ? 8 : (catppuccin ? 3 : 1.5), y: dragging ? 3 : (catppuccin ? 1.5 : 0.5))
         }
         .overlay(alignment: .trailing) {
-            if hovering && !dragging {
+            if showsNumber && !hovering, let number {
+                TabNumberBadge(number: number, active: active, catppuccin: catppuccin, ink: ink)
+                    .padding(.trailing, 5)
+                    .transition(.scale(scale: 0.6).combined(with: .opacity))
+            } else if hovering && !dragging {
                 Button { controller.closeTab(id) } label: {
                     Image(systemName: "xmark").font(.system(size: 8, weight: .bold)).foregroundStyle(.secondary)
                         .frame(width: 16, height: 16)
@@ -330,6 +341,7 @@ struct TabItemView: View {
         .zIndex(dragging ? 1 : 0)
         .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { controller.tabFrames[id] = $0 }
         .animation(.snappy(duration: 0.18), value: hovering)
+        .animation(.snappy(duration: 0.2), value: showsNumber)
         .animation(.snappy(duration: 0.2), value: active)
         .animation(.interactiveSpring(), value: dragOffset)
         .help(title)
@@ -347,6 +359,33 @@ struct TabItemView: View {
             Divider(); Button("Close Window") { controller.closeTab(id) }
             Divider(); GroupMenuItems(controller: controller, group: group)
         }
+    }
+}
+
+/// A tab's jump number, shown briefly at the end of the tab after a jump-to-tab shortcut.
+/// Glass in Glass mode; in Color mode a tint of the shell's ink, so it reads on any color.
+struct TabNumberBadge: View {
+    let number: String
+    let active: Bool
+    let catppuccin: Bool
+    let ink: Color
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 5, style: .continuous)
+        // Color mode: the selected tab is a card in the palette's base, the others sit on the
+        // shell; use the ink that reads on each.
+        let fg = catppuccin ? (active ? Catppuccin.text : ink) : Color.primary
+        let label = Text(number)
+            .font(.system(size: 10, weight: .bold, design: .rounded)).monospacedDigit()
+            .foregroundStyle(fg)
+            .frame(width: 16, height: 16)
+        Group {
+            // Glass mode: a small piece of glass. Color mode: a tint of the ink, which matches
+            // the solid shell (glass would also recolor the digit).
+            if catppuccin { label.background(fg.opacity(0.16), in: shape) }
+            else { label.liquidGlass(in: shape) }
+        }
+        .overlay { shape.strokeBorder(Color.white.opacity(0.18), lineWidth: 0.5) }
+        .allowsHitTesting(false)
     }
 }
 

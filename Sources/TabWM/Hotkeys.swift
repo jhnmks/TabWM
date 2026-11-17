@@ -17,6 +17,10 @@ final class ShortcutMonitor: ObservableObject {
     @Published private(set) var isActive = false
     private var engine: ShortcutEngine?
     let handler: (ShortcutAction) -> Void
+    /// Jump to the tab at this position (0-based; the 0 key is the tenth tab).
+    var onJump: ((Int) -> Void)?
+    /// The jump-to-tab keys (e.g. 🌐 ⌘) were pressed (true) or released (false).
+    var onJumpChord: ((Bool) -> Void)?
     init(handler: @escaping (ShortcutAction) -> Void) { self.handler = handler }
 
     /// Why shortcuts aren't running, in words the user can act on; nil while active.
@@ -48,19 +52,38 @@ final class ShortcutMonitor: ObservableObject {
                 problem = "macOS refused to start the keyboard listener. Quit and reopen TabWM."
             }
         }
-        var leaderBindings: [KeyChord: ShortcutAction] = [:], directBindings: [KeyChord: ShortcutAction] = [:]
+        var leaderBindings: [KeyChord: ShortcutHit] = [:], directBindings: [KeyChord: ShortcutHit] = [:]
         for action in ShortcutAction.allCases {
             if action == .search && !settings.searchEnabled { continue }
             let binding = settings.binding(for: action)
             guard binding.enabled else { continue }
             let chord = KeyChord(keyCode: binding.keyCode, modifiers: binding.modifiers)
-            if binding.usesLeader { leaderBindings[chord] = action } else { directBindings[chord] = action }
+            if binding.usesLeader { leaderBindings[chord] = .action(action) } else { directBindings[chord] = .action(action) }
+        }
+        // Number keys 1–9 and 0 jump to tabs 1–10.
+        if settings.jumpToTab.enabled {
+            for (index, code) in KeyNames.digitKeyCodes.enumerated() {
+                let chord = KeyChord(keyCode: code, modifiers: settings.jumpToTab.modifiers)
+                if settings.jumpToTab.usesLeader { leaderBindings[chord] = .jump(index) } else { directBindings[chord] = .jump(index) }
+            }
         }
         let config = ShortcutConfig(leader: settings.leaderKey, chordModifiers: AppSettings.leaderChords[settings.leaderKey],
-                                    sequence: settings.leaderSequence, leaderBindings: leaderBindings, directBindings: directBindings)
+                                    sequence: settings.leaderSequence, leaderBindings: leaderBindings, directBindings: directBindings,
+                                    jumpModifiers: settings.jumpToTab.enabled ? settings.jumpToTab.modifiers : nil,
+                                    jumpUsesLeader: settings.jumpToTab.usesLeader)
         if let engine { engine.update(config); isActive = engine.running; return }
-        let engine = ShortcutEngine(config: config) { [weak self] action in
-            DispatchQueue.main.async { MainActor.assumeIsolated { self?.handler(action) } }
+        let engine = ShortcutEngine(config: config) { [weak self] hit in
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    switch hit {
+                    case .action(let action): self?.handler(action)
+                    case .jump(let index): self?.onJump?(index)
+                    }
+                }
+            }
+        }
+        engine.onJumpChord = { [weak self] down in
+            DispatchQueue.main.async { MainActor.assumeIsolated { self?.onJumpChord?(down) } }
         }
         let ready = DispatchSemaphore(value: 0)
         let thread = Thread { engine.run(ready: ready) }
@@ -75,20 +98,30 @@ final class ShortcutMonitor: ObservableObject {
 }
 
 struct KeyChord: Hashable, Sendable { var keyCode: UInt32; var modifiers: UInt32 }
+/// What a matched key does: a named action, or jumping to a tab by position.
+enum ShortcutHit: Sendable, Equatable {
+    case action(ShortcutAction)
+    case jump(Int)
+    var repeats: Bool { if case .action(let a) = self { return a.repeats }; return false }
+    var name: String { switch self { case .action(let a): return a.rawValue; case .jump(let i): return "jumpToTab\(i + 1)" } }
+}
 struct ShortcutConfig: Sendable {
     var leader: String
     /// Set for chord leaders such as ⌃⌥; nil for solo leaders and "off".
     var chordModifiers: UInt32?
     var sequence: Bool
-    var leaderBindings: [KeyChord: ShortcutAction]
-    var directBindings: [KeyChord: ShortcutAction]
+    var leaderBindings: [KeyChord: ShortcutHit]
+    var directBindings: [KeyChord: ShortcutHit]
+    /// Modifiers held with a number to jump to a tab; nil when jumping is off.
+    var jumpModifiers: UInt32?
+    var jumpUsesLeader = true
 }
 
 /// Owned by the tap thread; `config` is the only state shared with the main thread.
 final class ShortcutEngine: @unchecked Sendable {
     private let lock = NSLock()
     private var config: ShortcutConfig
-    private let fire: (ShortcutAction) -> Void
+    private let fire: (ShortcutHit) -> Void
     private var tap: CFMachPort?
     private var runLoop: CFRunLoop?
     private(set) var running = false
@@ -100,7 +133,23 @@ final class ShortcutEngine: @unchecked Sendable {
     /// Key codes whose key-up must also be swallowed because we ate the key-down.
     private var swallowedKeys: Set<Int64> = []
 
-    init(config: ShortcutConfig, fire: @escaping (ShortcutAction) -> Void) { self.config = config; self.fire = fire }
+    init(config: ShortcutConfig, fire: @escaping (ShortcutHit) -> Void) { self.config = config; self.fire = fire }
+    /// Set before `run`; called on the tap thread when the jump-to-tab keys go down or up.
+    var onJumpChord: ((Bool) -> Void)?
+    private var jumpChordDown = false
+    /// Whether exactly the jump-to-tab keys are held now (the leader, if used, plus its modifiers).
+    private func updateJumpChord(_ event: CGEvent, _ config: ShortcutConfig) {
+        var down = false
+        if let jump = config.jumpModifiers {
+            let held = Self.modifiers(event.flags)
+            if !config.jumpUsesLeader { down = held == jump }
+            else if let chord = config.chordModifiers { down = held & chord == chord && held & ~chord == jump }
+            else if config.leader != "off" { down = leaderDown && held & ~(Self.soloModifierMask[config.leader] ?? 0) == jump }
+        }
+        guard down != jumpChordDown else { return }
+        jumpChordDown = down
+        onJumpChord?(down)
+    }
     func update(_ config: ShortcutConfig) { lock.lock(); self.config = config; lock.unlock() }
     private var current: ShortcutConfig { lock.lock(); defer { lock.unlock() }; return config }
 
@@ -154,7 +203,7 @@ final class ShortcutEngine: @unchecked Sendable {
     /// laptop fn-arrow mapping). Map them back so 🌐 ← / 🌐 → match ← / →.
     private static let globeNavigation: [Int64: Int64] = [115: 123, 119: 124, 116: 126, 121: 125]
 
-    private func match(_ rawKeyCode: Int64, _ event: CGEvent, _ config: ShortcutConfig, now: TimeInterval) -> ShortcutAction? {
+    private func match(_ rawKeyCode: Int64, _ event: CGEvent, _ config: ShortcutConfig, now: TimeInterval) -> ShortcutHit? {
         let held = Self.modifiers(event.flags)
         var keyCode = rawKeyCode
         if config.leader == "globe", leaderDown || now < armedUntil, let arrow = Self.globeNavigation[rawKeyCode] { keyCode = arrow }
@@ -169,7 +218,8 @@ final class ShortcutEngine: @unchecked Sendable {
                 if holding { usedWhileDown = true }
                 // The right-hand leader itself shows up as its modifier; ignore it when matching.
                 let extra = held & ~(holding ? (Self.soloModifierMask[config.leader] ?? 0) : 0)
-                if let action = config.leaderBindings[KeyChord(keyCode: code, modifiers: extra & KeyModifier.leaderExtras)], extra & ~KeyModifier.leaderExtras == 0 { return action }
+                // Leader shortcuts may add ⇧ and ⌃; jumping to a tab may add ⌘ as well.
+                if let hit = config.leaderBindings[KeyChord(keyCode: code, modifiers: extra & KeyModifier.jumpLeaderExtras)], extra & ~KeyModifier.jumpLeaderExtras == 0 { return hit }
             }
         }
         return config.directBindings[KeyChord(keyCode: code, modifiers: held)]
@@ -203,17 +253,18 @@ final class ShortcutEngine: @unchecked Sendable {
             if leaderDown || now < armedUntil {
                 shortcutLog.debug("key \(keyCode, privacy: .public) flags=\(String(event.flags.rawValue, radix: 16), privacy: .public) with leader")
             }
-            if let action = match(keyCode, event, config, now: now) {
-                shortcutLog.notice("shortcut \(action.rawValue, privacy: .public)")
+            if let hit = match(keyCode, event, config, now: now) {
+                shortcutLog.notice("shortcut \(hit.name, privacy: .public)")
                 swallowedKeys.insert(keyCode)
                 let repeating = event.getIntegerValueField(.keyboardEventAutorepeat) != 0
-                if !repeating || action.repeats { fire(action) }
+                if !repeating || hit.repeats { fire(hit) }
                 return nil
             }
         case .keyUp:
             if swallowedKeys.remove(event.getIntegerValueField(.keyboardEventKeycode)) != nil { return nil }
         default: break
         }
+        if type == .flagsChanged { updateJumpChord(event, config) }
         return Unmanaged.passUnretained(event)
     }
 }
@@ -221,6 +272,13 @@ final class ShortcutEngine: @unchecked Sendable {
 // MARK: - Display
 
 enum KeyNames {
+    /// Key codes of 1–9 and then 0, in tab order.
+    static let digitKeyCodes: [UInt32] = [18, 19, 20, 21, 23, 22, 26, 28, 25, 29]
+    /// "🌐 ⌘ 1…0": how jumping to a tab is pressed.
+    static func describeJump(_ binding: ShortcutBinding, leader: String) -> String {
+        let keys = modifiers(binding.modifiers) + "1…0"
+        return binding.usesLeader ? "\(Self.leader(leader)) \(keys)" : keys
+    }
     static let special: [UInt32: String] = [36: "↩", 48: "⇥", 49: "Space", 51: "⌫", 53: "⎋", 117: "⌦", 123: "←", 124: "→", 125: "↓", 126: "↑",
                                            115: "↖", 119: "↘", 116: "⇞", 121: "⇟", 122: "F1", 120: "F2", 99: "F3", 118: "F4", 96: "F5", 97: "F6", 98: "F7", 100: "F8", 101: "F9", 109: "F10", 103: "F11", 111: "F12"]
     static func name(_ keyCode: UInt32) -> String {
@@ -266,10 +324,12 @@ enum KeyNames {
 struct ShortcutRecorder: NSViewRepresentable {
     @Binding var binding: ShortcutBinding
     let leader: String
+    /// Records the keys held with a number for jumping to tabs; only modifiers are kept.
+    var jump = false
     func makeNSView(context: Context) -> ShortcutButton { let button = ShortcutButton(); update(button); return button }
     func updateNSView(_ view: ShortcutButton, context: Context) { update(view) }
     private func update(_ view: ShortcutButton) {
-        view.binding = binding; view.leader = leader; view.onCapture = { binding = $0 }; view.updateTitle()
+        view.binding = binding; view.leader = leader; view.jump = jump; view.onCapture = { binding = $0 }; view.updateTitle()
     }
 }
 
@@ -278,14 +338,18 @@ final class ShortcutButton: NSButton {
     var leader = "globe"
     var onCapture: ((ShortcutBinding) -> Void)?
     var recording = false
+    var jump = false
     override init(frame: NSRect) { super.init(frame: frame); target = self; action = #selector(begin); bezelStyle = .rounded }
     required init?(coder: NSCoder) { fatalError() }
     override var acceptsFirstResponder: Bool { true }
-    @objc func begin() { recording = true; window?.makeFirstResponder(self); title = binding.usesLeader ? "Press a key…" : "Press shortcut…" }
+    @objc func begin() {
+        recording = true; window?.makeFirstResponder(self)
+        title = jump ? "Press keys + a number…" : binding.usesLeader ? "Press a key…" : "Press shortcut…"
+    }
     override func resignFirstResponder() -> Bool { recording = false; updateTitle(); return super.resignFirstResponder() }
     func updateTitle() {
         guard !recording else { return }
-        title = binding.enabled ? KeyNames.describe(binding, leader: leader) : "Off"
+        title = !binding.enabled ? "Off" : jump ? KeyNames.describeJump(binding, leader: leader) : KeyNames.describe(binding, leader: leader)
         alphaValue = binding.enabled ? 1 : 0.6
     }
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
@@ -300,6 +364,15 @@ final class ShortcutButton: NSButton {
         if f.contains(.command) { mods |= KeyModifier.command }; if f.contains(.option) { mods |= KeyModifier.option }
         if f.contains(.control) { mods |= KeyModifier.control }; if f.contains(.shift) { mods |= KeyModifier.shift }
         var next = binding
+        if jump {
+            // Any number key; only the modifiers held with it are kept.
+            guard KeyNames.digitKeyCodes.contains(UInt32(event.keyCode)) else { NSSound.beep(); return }
+            if binding.usesLeader { guard mods & ~KeyModifier.jumpLeaderExtras == 0 else { NSSound.beep(); return } }
+            else { guard mods & (KeyModifier.command | KeyModifier.option | KeyModifier.control) != 0 else { NSSound.beep(); return } }
+            next.keyCode = 0; next.modifiers = mods; next.enabled = true
+            recording = false; binding = next; onCapture?(next); updateTitle()
+            return
+        }
         if binding.usesLeader {
             guard mods & ~KeyModifier.leaderExtras == 0 else { NSSound.beep(); return }
         } else {

@@ -44,6 +44,13 @@ func runUISmoke(output: URL) {
                 }
             }
             controller.settings.frameColor="mauve"
+            // Tab numbers after a jump-to-tab shortcut, in both styles.
+            controller.numberedGroup=id
+            try render(GroupFrameView(controller:controller,groupID:id).frame(height:80,alignment:.top),name:"strip-numbers-color",size:NSSize(width:908,height:80),dark:true)
+            controller.settings.frameStyle="glass"
+            try render(GroupFrameView(controller:controller,groupID:id).frame(height:80,alignment:.top),name:"strip-numbers-glass",size:NSSize(width:908,height:80),dark:true)
+            controller.settings.frameStyle="catppuccin"
+            controller.numberedGroup=nil
             try render(FrameStylePicker(controller:controller).padding(18).frame(width:340),name:"frame-style-picker",size:NSSize(width:340,height:260))
         }
         let result:[String:Any]=["status":"passed","rendered":["settings","window-picker","search","tab-bar"],"windows":controller.windows.count,"groups":controller.groups.count,"liveWindowActions":0]

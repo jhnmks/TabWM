@@ -71,6 +71,27 @@ public enum SettingsFile {
         parts.append(keyNames[b.keyCode] ?? "key\(b.keyCode)")
         return parts.joined(separator: "+")
     }
+    /// "leader+cmd+NUMBER", "ctrl+opt+NUMBER", or "off".
+    public static func describeJump(_ b: ShortcutBinding) -> String {
+        guard b.enabled else { return "off" }
+        var parts = b.usesLeader ? ["leader"] : []
+        parts += modifierNames.filter { b.modifiers & $0.0 != 0 }.map(\.1)
+        parts.append("NUMBER")
+        return parts.joined(separator: "+")
+    }
+    static func jumpBinding(_ text: String, current: ShortcutBinding) -> ShortcutBinding? {
+        let value = text.trimmingCharacters(in: .whitespaces)
+        if value.lowercased() == "off" { var b = current; b.enabled = false; return b }
+        var parts = value.split(separator: "+").map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
+        guard parts.popLast() == "number", !parts.isEmpty else { return nil }
+        var binding = ShortcutBinding(keyCode: 0, usesLeader: false)
+        for part in parts {
+            if part == "leader" { binding.usesLeader = true; continue }
+            guard let mask = modifierAliases[part] else { return nil }
+            binding.modifiers |= mask
+        }
+        return binding
+    }
     static func binding(_ text: String, current: ShortcutBinding) -> ShortcutBinding? {
         let value = text.trimmingCharacters(in: .whitespaces)
         if value.lowercased() == "off" { var b = current; b.enabled = false; return b }
@@ -199,6 +220,9 @@ public enum SettingsFile {
             shortcutRow(.nextTab, "Show the tab to the right"),
             shortcutRow(.moveTabLeft, "Move the current tab one place left (keep holding, press again to keep moving)"),
             shortcutRow(.moveTabRight, "Move the current tab one place right"),
+            Row(about: "Jump to a tab by number: 1 is the first tab, 0 the tenth",
+                key: "jump-to-tab", value: q(describeJump(s.jumpToTab)),
+                options: "\"leader+MODIFIERS+NUMBER\" | \"MODIFIERS+NUMBER\" | \"off\""),
             shortcutRow(.search, "Find any tab by name"),
         ])
 
@@ -340,6 +364,12 @@ public enum SettingsFile {
                 throw FileError.syntax(line: TOML.line(of: "\(name)", in: text), message: "“\(value)” isn't a key TabWM knows for \(name).")
             }
             s.setBinding(binding, for: action)
+        }
+        if let value = string("shortcuts.jump-to-tab") {
+            guard let binding = jumpBinding(value, current: s.jumpToTab) else {
+                throw FileError.syntax(line: TOML.line(of: "jump-to-tab", in: text), message: "“\(value)” should look like \"leader+cmd+NUMBER\", \"ctrl+opt+NUMBER\", or \"off\".")
+            }
+            s.jumpToTab = binding
         }
         s.normalize()
         return s

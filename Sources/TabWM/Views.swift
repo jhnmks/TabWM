@@ -364,7 +364,9 @@ struct SettingsView: View {
                     shortcutRow(action)
                 }
                 SettingsDivider()
-                HStack { Spacer(); Button("Restore Defaults") { controller.settings.shortcuts = [:]; controller.settings.leaderKey = "globe"; controller.settings.modifier = "leader" } }
+                jumpRow
+                SettingsDivider()
+                HStack { Spacer(); Button("Restore Defaults") { controller.settings.shortcuts = [:]; controller.settings.jumpToTab = AppSettings.defaultJumpToTab; controller.settings.leaderKey = "globe"; controller.settings.modifier = "leader" } }
             }
         }
     }
@@ -378,6 +380,26 @@ struct SettingsView: View {
         .moveTabLeft: "Moves the current tab one place to the left. Keep holding the keys and press again to keep moving it.",
         .moveTabRight: "Moves the current tab one place to the right. Keep holding the keys and press again to keep moving it.",
     ]
+    /// Jump to tab: the keys held with a number. Recording takes any number key with the
+    /// modifiers you want; only the modifiers are kept.
+    var jumpRow: some View {
+        let binding = $controller.settings.jumpToTab
+        return SettingRow("Jump to tab",
+                          detail: "Hold these keys and press a number to show that tab: 1 is the first tab, 0 the tenth. While you hold the keys, every tab shows its number. Record it by pressing the keys with any number.") {
+            HStack(spacing: 12) {
+                Toggle("Use leader", isOn: Binding(get: { binding.wrappedValue.usesLeader }, set: { uses in
+                    var b = binding.wrappedValue; b.usesLeader = uses
+                    if uses { b.modifiers &= KeyModifier.jumpLeaderExtras }
+                    else if b.modifiers & (KeyModifier.control | KeyModifier.option | KeyModifier.command) == 0 {
+                        b.modifiers |= AppSettings.leaderChords[controller.settings.leaderKey] ?? (KeyModifier.control | KeyModifier.option)
+                    }
+                    binding.wrappedValue = b
+                })).toggleStyle(.checkbox).help("Press the leader key together with these keys and a number")
+                ShortcutRecorder(binding: binding, leader: controller.settings.leaderKey, jump: true).frame(width: 150, height: 28)
+                Toggle("", isOn: binding.enabled).toggleStyle(.switch).controlSize(.small).labelsHidden().help("Turn jumping to tabs on or off")
+            }
+        }
+    }
     func shortcutRow(_ action: ShortcutAction) -> some View {
         let binding = Binding<ShortcutBinding>(get: { controller.settings.binding(for: action) }, set: { controller.settings.setBinding($0, for: action) })
         return SettingRow(action.title, detail: Self.shortcutDetails[action] ?? "") {
@@ -430,6 +452,7 @@ struct SettingsView: View {
                 HelpLine("Click a tab to switch to its window. \(keys(.previousTab)) and \(keys(.nextTab)) step through the tabs of the group you're in.")
                 HelpLine("Drag a tab sideways to reorder it, onto another group's tab strip to move it there, or away from the strip to detach it.")
                 HelpLine("\(keys(.moveTabLeft)) and \(keys(.moveTabRight)) move the current tab one place. Keep holding the keys and press the arrow again to keep moving it.")
+                HelpLine("\(controller.settings.jumpToTab.enabled ? KeyNames.describeJump(controller.settings.jumpToTab, leader: controller.settings.leaderKey) : "(off)") jumps straight to a tab: 1 is the first tab, 0 the tenth. Hold the keys and every tab shows its number.")
                 HelpLine("Hover a tab and click × to close that window.")
                 HelpLine("Right-click a tab to activate, detach, close it, or move it to another group.")
             }

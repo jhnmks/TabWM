@@ -59,7 +59,15 @@ final class AppController: NSObject, ObservableObject, NSMenuDelegate {
     var settingsWindow: NSWindow?
     var searchWindow: NSWindow?
     var windowPicker: NSWindow?
-    lazy var shortcuts = ShortcutMonitor { [weak self] action in self?.perform(action) }
+    lazy var shortcuts: ShortcutMonitor = {
+        let monitor = ShortcutMonitor { [weak self] action in self?.perform(action) }
+        monitor.onJump = { [weak self] index in self?.jump(toTab: index) }
+        monitor.onJumpChord = { [weak self] held in self?.jumpChord(held: held) }
+        return monitor
+    }()
+    /// The group whose tab numbers are showing right now, after a jump-to-tab shortcut.
+    @Published var numberedGroup: UUID?
+    private var numbersHide: DispatchWorkItem?
     /// Last login-item problem, shown next to the toggle in General settings.
     @Published var loginItemMessage: String?
     var dragMonitor: Any?
@@ -128,6 +136,7 @@ final class AppController: NSObject, ObservableObject, NSMenuDelegate {
         system.pollInterval = windowEvents.active ? 1.0 : 0.35
         applySettings()
         watchSettingsFile()
+        startOverviewPolling()
         badges.start()
         desktopTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.updateGroupDesktops() }
@@ -209,7 +218,7 @@ final class AppController: NSObject, ObservableObject, NSMenuDelegate {
         if !system.accessibilityGranted { showSettings() }
     }
     func stop() {
-        saveSession(); system.stop(); shortcuts.stop(); badges.stop(); desktopTimer?.invalidate(); settingsWatcher?.cancel()
+        saveSession(); system.stop(); shortcuts.stop(); badges.stop(); desktopTimer?.invalidate(); overviewPoll?.invalidate(); settingsWatcher?.cancel()
         if let spaceObserver { NSWorkspace.shared.notificationCenter.removeObserver(spaceObserver) }
         workspaceObservers.forEach { NSWorkspace.shared.notificationCenter.removeObserver($0); NotificationCenter.default.removeObserver($0) }
         if let dragMonitor { NSEvent.removeMonitor(dragMonitor) }
@@ -673,6 +682,42 @@ final class AppController: NSObject, ObservableObject, NSMenuDelegate {
         guard let focused = system.liveFocusedWindowID() ?? system.focusedWindowID else { return nil }
         return engine.group(containing: focused)
     }
+    /// Jumps to the tab at `index` (0-based) in the focused group, and briefly shows every tab's
+    /// number so the next jump is easy to aim.
+    func jump(toTab index: Int) {
+        guard !paused, let group = focusedGroup else { return }
+        if index < group.members.count { activate(group.members[index]) }
+        showTabNumbers(for: group.id)
+    }
+    /// Whether the jump-to-tab keys (e.g. 🌐 ⌘) are held right now.
+    var jumpChordHeld = false
+    /// The jump-to-tab keys went down or up: show the focused group's tab numbers while they're
+    /// held, so you can see which number to press without counting.
+    func jumpChord(held: Bool) {
+        jumpChordHeld = held
+        numbersHide?.cancel()
+        if held {
+            guard !paused, let group = focusedGroup else { return }
+            numberedGroup = group.id
+        } else {
+            hideTabNumbers(after: 0.15)
+        }
+    }
+    /// After a jump: keep the numbers up while the keys are held, or for a moment otherwise
+    /// (tap-the-leader jumps, or combos without the leader).
+    func showTabNumbers(for groupID: UUID) {
+        numberedGroup = groupID
+        numbersHide?.cancel()
+        if !jumpChordHeld { hideTabNumbers(after: 1.2) }
+    }
+    func hideTabNumbers(after delay: TimeInterval) {
+        let hide = DispatchWorkItem { [weak self] in
+            guard let self, !self.jumpChordHeld else { return }
+            self.numberedGroup = nil
+        }
+        numbersHide = hide
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: hide)
+    }
     func cycle(forward: Bool) {
         guard let group = focusedGroup else { return }
         let candidates = group.members.filter { !group.suspended.contains($0) && !group.minimized.contains($0) }
@@ -837,6 +882,18 @@ final class AppController: NSObject, ObservableObject, NSMenuDelegate {
             }
             self.updateOverlays()
             self.system.refresh()
+        }
+    }
+    /// Watches for Mission Control and App Exposé opening, so TabWM stops moving frames while
+    /// macOS lays out the overview. Cheap: one look at the on-screen window list.
+    var overviewPoll: Timer?
+    func startOverviewPolling() {
+        overviewPoll?.invalidate()
+        overviewPoll = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, !self.overviewOpen, !self.groups.isEmpty, WindowSystem.overviewOpenNow() else { return }
+                self.overviewSeen()
+            }
         }
     }
     /// Window closed by user or application; detach immediately instead of waiting for census sweeps.

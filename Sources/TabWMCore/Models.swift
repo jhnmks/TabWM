@@ -63,6 +63,8 @@ public enum KeyModifier {
     public static let all: UInt32 = 0x1f00
     /// Modifiers that may be added to a leader shortcut: leader+shift+KEY, leader+ctrl+KEY.
     public static let leaderExtras: UInt32 = shift | control
+    /// Modifiers that may be added to the leader for jumping to a tab: leader+cmd+NUMBER.
+    public static let jumpLeaderExtras: UInt32 = shift | control | command
 }
 
 public enum ShortcutAction: String, Codable, CaseIterable, Sendable {
@@ -146,6 +148,11 @@ public struct AppSettings: Codable, Equatable {
     public var leaderSequence = true
     /// Keyed by `ShortcutAction.rawValue`; a missing entry means the default binding.
     public var shortcuts: [String: ShortcutBinding] = [:]
+    /// Keys pressed with a number to jump to a tab: 1 is the first tab, 0 the tenth.
+    /// Only `modifiers`, `usesLeader`, and `enabled` matter; `keyCode` is unused.
+    public var jumpToTab = AppSettings.defaultJumpToTab
+    /// Default: leader + ⌘ + number.
+    public static let defaultJumpToTab = ShortcutBinding(keyCode: 0, modifiers: KeyModifier.command)
     public init() {}
     // Defaults: leader + G, T, U, S, ←, →, ⌃←, ⌃→.
     public static let defaultShortcuts: [ShortcutAction: ShortcutBinding] = [
@@ -167,7 +174,7 @@ public struct AppSettings: Codable, Equatable {
     }
     private enum CodingKeys: String, CodingKey {
         case modifier, settingsRevision, holdDelay, tabBarHeight, frameThickness, tabBarOpacity, frameStyle, frameColor, appearance, showBadges, searchEnabled, excludedBundleIDs, newWindowPolicy, fullscreenPolicy, offSpacePolicy, singleWindowPolicy, launchAtLogin
-        case leaderKey, leaderSequence, shortcuts
+        case leaderKey, leaderSequence, shortcuts, jumpToTab
     }
     public init(from decoder: Decoder) throws {
         self.init()
@@ -204,5 +211,6 @@ public struct AppSettings: Codable, Equatable {
         leaderSequence = try values.decodeIfPresent(Bool.self, forKey: .leaderSequence) ?? leaderSequence
         // Older settings files used separate shortcut fields; those are dropped in favour of defaults.
         shortcuts = try values.decodeIfPresent([String: ShortcutBinding].self, forKey: .shortcuts) ?? shortcuts
+        jumpToTab = try values.decodeIfPresent(ShortcutBinding.self, forKey: .jumpToTab) ?? jumpToTab
     }
 }

@@ -33,5 +33,13 @@ extension AppSettings {
             if binding != Self.defaultShortcuts[action] { cleaned[action.rawValue] = binding }
         }
         shortcuts = cleaned
+        jumpToTab.keyCode = 0
+        jumpToTab.modifiers &= KeyModifier.all
+        if jumpToTab.usesLeader { jumpToTab.modifiers &= KeyModifier.jumpLeaderExtras }
+        // Without the leader, digits need Control, Option, or Command to be a global shortcut.
+        else if jumpToTab.modifiers & (KeyModifier.control | KeyModifier.option | KeyModifier.command) == 0 {
+            let on = jumpToTab.enabled
+            jumpToTab = Self.defaultJumpToTab; jumpToTab.enabled = on
+        }
     }
 }
