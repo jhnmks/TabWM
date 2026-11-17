@@ -660,12 +660,13 @@ final class AppController: NSObject, ObservableObject, NSMenuDelegate {
         if let group = engine.group(containing: id) { lastActivation[group.id] = ProcessInfo.processInfo.systemUptime }
         engine.activate(id); system.focus(id); updateOverlays()
     }
-    /// The group the user is working in: the focused window's group, otherwise the
-    /// frontmost visible group in window order.
+    /// The group of the focused window, read live, so shortcuts act on the group you're typing
+    /// in and never on one elsewhere (another desktop, or behind other windows). If the focused
+    /// window isn't grouped, there's no focused group and group shortcuts do nothing.
     var focusedGroup: TabWMCore.WindowGroup? {
-        if let focused = system.focusedWindowID, let group = engine.group(containing: focused) { return group }
-        for id in system.zOrder { if let group = engine.group(containing: id), overlays[group.id]?.isVisible == true { return group } }
-        return nil
+        // The census copy as a fallback only when Accessibility can't answer in time.
+        guard let focused = system.liveFocusedWindowID() ?? system.focusedWindowID else { return nil }
+        return engine.group(containing: focused)
     }
     func cycle(forward: Bool) {
         guard let group = focusedGroup else { return }
@@ -910,16 +911,29 @@ final class AppController: NSObject, ObservableObject, NSMenuDelegate {
     func showStripsForCurrentSpace() {
         guard !paused, !stageManagerEnabled, system.accessibilityGranted else { return }
         let onScreen = Set(WindowSystem.liveZOrder())
+        let current = SkyLight.shared.currentSpaces()
         for group in groups {
             guard let panel = overlays[group.id] else { continue }
             if onScreen.contains(group.activeWindowID), let frame = WindowSystem.serverFrame(group.activeWindowID) {
                 panel.place(around: frame, windowID: group.activeWindowID)
                 panel.orderFront(nil)
                 panel.restack()
-            } else {
+            } else if !frameStaysOnItsSpace(group, panel, current: current) {
                 panel.orderOut(nil)
             }
         }
+    }
+    /// A group on another desktop keeps its frame ordered in on that desktop. macOS then slides
+    /// the frame in and out together with the windows when you switch desktops, instead of it
+    /// vanishing and reappearing late. True when the group's visible window is on a desktop that
+    /// isn't shown right now, and the frame is on that same desktop.
+    func frameStaysOnItsSpace(_ group: TabWMCore.WindowGroup, _ panel: GroupFramePanel, current: Set<UInt64>) -> Bool {
+        // Not `suspended`: windows on another desktop are always suspended while it isn't shown.
+        guard panel.isVisible, let w = window(group.activeWindowID), !w.isMinimized, !w.isFullscreen,
+              !group.minimized.contains(w.id),
+              NSRunningApplication(processIdentifier: w.pid)?.isHidden != true,
+              let space = SkyLight.shared.space(of: w.id), !current.contains(space) else { return false }
+        return SkyLight.shared.space(of: UInt32(panel.windowNumber)) == space
     }
     func updateMousePassThrough() {
         let mouse = NSEvent.mouseLocation
@@ -932,6 +946,7 @@ final class AppController: NSObject, ObservableObject, NSMenuDelegate {
     func updateOverlays() {
         guard statusItem != nil else { return }
         let ids = Set(groups.map(\.id))
+        var current: Set<UInt64>?
         for id in Array(overlays.keys) where !ids.contains(id) { overlays.removeValue(forKey:id)?.close() }
         for group in groups {
             let panel = overlays[group.id] ?? GroupFramePanel(controller:self,groupID:group.id)
@@ -944,7 +959,8 @@ final class AppController: NSObject, ObservableObject, NSMenuDelegate {
             } else if !group.members.contains(where: { id in
                 guard let w = window(id) else { return false }; return w.isOnScreen && !w.isMinimized && !w.isFullscreen && !group.suspended.contains(id)
             }) {
-                panel.orderOut(nil)
+                if current == nil { current = SkyLight.shared.currentSpaces() }
+                if !frameStaysOnItsSpace(group, panel, current: current ?? []) { panel.orderOut(nil) }
             } else { panel.update(group) }
         }
     }

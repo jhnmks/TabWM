@@ -335,6 +335,20 @@ final class WindowSystem {
         _ = check(AXUIElementSetAttributeValue(element, kAXSizeAttribute as CFString, sizeValue), action: "Resize window")
         _ = check(AXUIElementSetAttributeValue(element, kAXPositionAttribute as CFString, positionValue), action: "Move window")
     }
+    /// The focused window of the frontmost app, read now through Accessibility. The census
+    /// copy (`focusedWindowID`) can be a second old, e.g. right after a click or Space switch.
+    func liveFocusedWindowID() -> UInt32? {
+        guard accessibilityGranted, let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier else { return nil }
+        let app = AXUIElementCreateApplication(pid)
+        // Called on the main thread when a shortcut fires: never wait long on a busy app.
+        AXUIElementSetMessagingTimeout(app, 0.15)
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(app, kAXFocusedWindowAttribute as CFString, &value) == .success,
+              let value, CFGetTypeID(value) == AXUIElementGetTypeID() else { return nil }
+        var id: UInt32 = 0
+        guard Self.getWindowID?(unsafeBitCast(value, to: AXUIElement.self), &id) == .success, id != 0 else { return nil }
+        return id
+    }
     /// Reads one window's current frame synchronously through Accessibility.
     func liveFrame(_ id: UInt32) -> CGRect? {
         guard accessibilityGranted, let element = elements[id] else { return nil }

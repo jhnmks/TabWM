@@ -60,6 +60,12 @@ final class SkyLight: @unchecked Sendable {
         }
         return numbers
     }
+    /// The Space shown right now on each display.
+    func currentSpaces() -> Set<UInt64> {
+        guard connection != 0, let copyManagedDisplaySpaces,
+              let displays = copyManagedDisplaySpaces(connection)?.takeRetainedValue() as? [[String: Any]] else { return [] }
+        return Set(displays.compactMap { (($0["Current Space"] as? [String: Any])?["ManagedSpaceID"] as? NSNumber)?.uint64Value })
+    }
     /// The Space a window is on, or nil if the window server doesn't say (some apps' windows
     /// report none while hidden).
     func space(of window: UInt32) -> UInt64? {
