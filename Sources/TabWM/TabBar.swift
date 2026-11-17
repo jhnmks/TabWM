@@ -2,6 +2,10 @@ import AppKit
 import SwiftUI
 import TabWMCore
 
+import os
+/// Diagnostic trace of everything done to frame windows: `log stream --predicate 'subsystem == "dev.tabwm.TabWM" AND category == "frames"'`.
+let frameLog = Logger(subsystem: "dev.tabwm.TabWM", category: "frames")
+
 enum FrameMetrics {
     /// Approximates the corner radius of standard macOS windows so the border hugs them.
     static let windowCornerRadius: CGFloat = 16
@@ -26,6 +30,9 @@ final class GroupFramePanel: NSPanel {
         // Transient: macOS leaves it out of Mission Control, App Exposé, and window cycling.
         // A managed panel shows up there as an empty frame and can catch overview clicks.
         collectionBehavior = [.transient, .ignoresCycle, .fullScreenAuxiliary]; hidesOnDeactivate = false
+        // No zoom-in when shown: macOS would grow the frame into place (visibly smaller, then
+        // full size) every time it appears, e.g. on returning to its desktop.
+        animationBehavior = .none
         acceptsMouseMovedEvents = true
         let host = NSHostingView(rootView: GroupFrameView(controller: controller, groupID: groupID))
         host.sizingOptions = []
@@ -37,11 +44,53 @@ final class GroupFramePanel: NSPanel {
         super.sendEvent(event)
         if [.leftMouseDown, .rightMouseDown, .leftMouseUp].contains(event.type) { restack() }
     }
-    /// Puts the frame directly above its window.
+    /// Puts the frame directly above its window. Skipped when it already is: every reorder
+    /// makes the window server recomposite the frame, which shows as a flicker when it happens
+    /// several times in a row (e.g. on returning to a desktop).
+    ///
+    /// Requests are coalesced into one per run-loop turn: a reorder lands in the window server
+    /// a moment later, so checking again straight away still sees the old order and would
+    /// reorder again (the log showed bursts of up to 14 in half a second).
     func restack() {
-        guard let anchorWindowID, isVisible else { return }
+        guard !restackPending else { return }
+        restackPending = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.restackPending = false
+            self.restackNow()
+        }
+    }
+    private var restackPending = false
+    private func restackNow() {
+        // Never during a desktop switch: macOS is sliding the desktops and reordering the
+        // frame then shows as tearing. The update after the switch settles restacks if needed.
+        guard let anchorWindowID, isVisible, controller?.isSpaceTransitioning != true, controller?.overviewOpen != true, isOnShownSpace,
+              needsRestack(above: anchorWindowID) else { return }
+        frameLog.notice("restack \(self.windowNumber, privacy: .public) above \(anchorWindowID, privacy: .public)")
         order(.above, relativeTo: Int(anchorWindowID))
     }
+    /// Whether the frame's desktop is the one being shown.
+    var isOnShownSpace: Bool {
+        guard let space = SkyLight.shared.space(of: UInt32(windowNumber)) else { return true }
+        return SkyLight.shared.currentSpaces().contains(space)
+    }
+    override func orderOut(_ sender: Any?) {
+        if isVisible { frameLog.notice("hide \(self.windowNumber, privacy: .public)") }
+        super.orderOut(sender)
+    }
+    /// Whether the frame has to be reordered to sit directly above `window`. Not while the
+    /// frame isn't on screen: it is then on another desktop, or macOS is still sliding its
+    /// desktop in, and reordering it mid-switch shows as tearing. macOS keeps the stacking from
+    /// before the switch, and the update after the switch settles fixes anything left.
+    func needsRestack(above window: UInt32) -> Bool {
+        let order = WindowSystem.liveZOrder()
+        guard let mine = order.firstIndex(of: UInt32(windowNumber)) else { return false }
+        return mine + 1 >= order.count || order[mine + 1] != window
+    }
+    /// Keep the frame exactly around its window. AppKit would otherwise push it below the menu
+    /// bar whenever the window sits higher (e.g. a new window cascading in), and each follow-up
+    /// placement would move it again.
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
 
     var thickness: CGFloat { CGFloat((controller?.settings ?? AppSettings()).frameThickness) }
     var barHeight: CGFloat { CGFloat((controller?.settings ?? AppSettings()).tabBarHeight) }
@@ -71,6 +120,7 @@ final class GroupFramePanel: NSPanel {
         let rect = NSRect(x: windowFrame.minX - t, y: primaryHeight - windowFrame.maxY - t,
                           width: windowFrame.width + 2 * t, height: windowFrame.height + 2 * t + bar).integral
         if frame != rect {
+            frameLog.notice("place \(self.windowNumber, privacy: .public) \(String(describing: self.frame), privacy: .public) -> \(String(describing: rect), privacy: .public)")
             if rect.size == lastSize {
                 // A pure move never relayouts the content.
                 setFrameOrigin(rect.origin)
@@ -87,9 +137,11 @@ final class GroupFramePanel: NSPanel {
         let alpha = max(0.3, min(1, controller.settings.tabBarOpacity))
         if alphaValue != alpha { alphaValue = alpha }
         if anchorWindowID != windowID || !isVisible {
+            frameLog.notice("show \(self.windowNumber, privacy: .public) above \(windowID, privacy: .public) (was visible: \(self.isVisible, privacy: .public))")
             anchorWindowID = windowID
-            if !isVisible { orderFront(nil) }
-            restack()
+            // Straight into place above the window: ordering it to the very front first would
+            // flash it over every other window for a frame.
+            order(.above, relativeTo: Int(windowID))
         }
     }
 }
@@ -98,6 +150,7 @@ struct GroupFrameView: View {
     @ObservedObject var controller: AppController
     let groupID: UUID
     var body: some View {
+        let _ = frameLog.notice("redraw frame content")
         if let group = controller.groups.first(where: { $0.id == groupID }) {
             let t = CGFloat(controller.settings.frameThickness)
             let bar = CGFloat(controller.settings.tabBarHeight)
@@ -239,7 +292,10 @@ struct TabItemView: View {
                 .font(.system(size: 12, weight: active ? .semibold : .medium))
                 .foregroundStyle(titleColor)
                 .lineLimit(1).truncationMode(.tail)
-            if group.suspended.contains(id) { Image(systemName: "pause.circle").font(.system(size: 10)).foregroundStyle(.tertiary) }
+            // Paused because the window went full screen. Not for windows that are only on
+            // another desktop: every tab is "paused" then, and badges popping in and out would
+            // reflow the strip on each desktop switch.
+            if group.suspended.contains(id), info?.isFullscreen == true { Image(systemName: "pause.circle").font(.system(size: 10)).foregroundStyle(.tertiary) }
             if controller.settings.showBadges, let info { DockBadgeView(badges: controller.badges, bundleID: info.bundleID) }
             Spacer(minLength: 0)
         }

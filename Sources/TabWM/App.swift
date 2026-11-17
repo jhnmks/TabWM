@@ -136,6 +136,7 @@ final class AppController: NSObject, ObservableObject, NSMenuDelegate {
         spaceObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
+                frameLog.notice("desktop switch notification")
                 self.isSpaceTransitioning = true
                 self.spaceGeneration &+= 1
                 let generation = self.spaceGeneration
@@ -145,6 +146,7 @@ final class AppController: NSObject, ObservableObject, NSMenuDelegate {
                 try? await Task.sleep(for: .milliseconds(700))
                 // A second switch during the wait restarts the clock.
                 guard generation == self.spaceGeneration else { return }
+                frameLog.notice("desktop switch settled")
                 self.isSpaceTransitioning = false
                 // Membership decisions wait for a census taken on the settled Space.
                 self.spaceSettledAt = ProcessInfo.processInfo.systemUptime
@@ -307,6 +309,7 @@ final class AppController: NSObject, ObservableObject, NSMenuDelegate {
         if system.accessibilityGranted && !liveFound.isEmpty { sawFirstCensus = true }
         let keep = Set(engine.groups.flatMap(\.members)).union(liveFound.map(\.id))
         knownTitles = knownTitles.filter { keep.contains($0.key) }
+        system.forgetIcons(except: keep)
         if !didRestore && system.accessibilityGranted && !liveFound.isEmpty {
             if !Set(startupPIDs.values).isDisjoint(with:system.censusUnavailablePIDs), startupRestore != nil { return }
             didRestore = true
@@ -321,6 +324,8 @@ final class AppController: NSObject, ObservableObject, NSMenuDelegate {
             relayoutAll()
         }
         // While Mission Control is open (detected from the window list), leave windows alone.
+        // Start watching for it to close, even if no grouped window was reordered to tell us.
+        if system.missionControlActive { overviewSeen() }
         guard !paused, system.accessibilityGranted, !isSpaceTransitioning, !system.missionControlActive, !stageManagerEnabled else { updateOverlays(); return }
         reconcileNativeTabs(previous: old, now: now)
         engine.reconcile(windows: windows, settings: settings, preservingMissing: pendingNativeMembers.union(membersOnOtherSpaces(liveFound)))
@@ -914,14 +919,27 @@ final class AppController: NSObject, ObservableObject, NSMenuDelegate {
         let current = SkyLight.shared.currentSpaces()
         for group in groups {
             guard let panel = overlays[group.id] else { continue }
-            if onScreen.contains(group.activeWindowID), let frame = WindowSystem.serverFrame(group.activeWindowID) {
+            if let frame = onShownSpace(group, current: current, onScreen: onScreen) {
+                // `place` orders the frame in directly above its window when needed, and
+                // `restack` only reorders if it isn't there already.
                 panel.place(around: frame, windowID: group.activeWindowID)
-                panel.orderFront(nil)
                 panel.restack()
             } else if !frameStaysOnItsSpace(group, panel, current: current) {
                 panel.orderOut(nil)
             }
         }
+    }
+    /// The visible window's live frame when it's on a desktop being shown, else nil. Right after
+    /// a desktop switch the window list and census still describe the old desktop for a moment;
+    /// the desktop the window server places the window on is right immediately.
+    func onShownSpace(_ group: TabWMCore.WindowGroup, current: Set<UInt64>, onScreen: Set<UInt32>? = nil) -> CGRect? {
+        let id = group.activeWindowID
+        guard let frame = WindowSystem.serverFrame(id) else { return nil }
+        if onScreen?.contains(id) == true { return frame }
+        // Some apps (e.g. Ghostty) stop listing windows that are on another desktop, so the
+        // census may not know this window yet. The window server does.
+        guard visibleOnItsSpace(id, group), let space = SkyLight.shared.space(of: id), current.contains(space) else { return nil }
+        return frame
     }
     /// A group on another desktop keeps its frame ordered in on that desktop. macOS then slides
     /// the frame in and out together with the windows when you switch desktops, instead of it
@@ -929,11 +947,18 @@ final class AppController: NSObject, ObservableObject, NSMenuDelegate {
     /// isn't shown right now, and the frame is on that same desktop.
     func frameStaysOnItsSpace(_ group: TabWMCore.WindowGroup, _ panel: GroupFramePanel, current: Set<UInt64>) -> Bool {
         // Not `suspended`: windows on another desktop are always suspended while it isn't shown.
-        guard panel.isVisible, let w = window(group.activeWindowID), !w.isMinimized, !w.isFullscreen,
-              !group.minimized.contains(w.id),
-              NSRunningApplication(processIdentifier: w.pid)?.isHidden != true,
-              let space = SkyLight.shared.space(of: w.id), !current.contains(space) else { return false }
+        let id = group.activeWindowID
+        guard panel.isVisible, visibleOnItsSpace(id, group),
+              let space = SkyLight.shared.space(of: id), !current.contains(space) else { return false }
         return SkyLight.shared.space(of: UInt32(panel.windowNumber)) == space
+    }
+    /// Whether a group's window would be visible on its own desktop: not minimized, full screen,
+    /// or in a hidden app. Uses what the census knows, and doesn't require the census to list
+    /// the window: apps like Ghostty stop listing windows while they are on another desktop.
+    func visibleOnItsSpace(_ id: UInt32, _ group: TabWMCore.WindowGroup) -> Bool {
+        guard !group.minimized.contains(id), WindowSystem.serverFrame(id) != nil else { return false }
+        guard let w = window(id) else { return true }
+        return !w.isMinimized && !w.isFullscreen && NSRunningApplication(processIdentifier: w.pid)?.isHidden != true
     }
     func updateMousePassThrough() {
         let mouse = NSEvent.mouseLocation
@@ -953,14 +978,22 @@ final class AppController: NSObject, ObservableObject, NSMenuDelegate {
             overlays[group.id] = panel
             if paused || stageManagerEnabled || !system.accessibilityGranted {
                 panel.orderOut(nil)
-            } else if isSpaceTransitioning {
-                // `showStripsForCurrentSpace` already placed this Space's strips.
+            } else if isSpaceTransitioning || overviewOpen {
+                // During a desktop switch `showStripsForCurrentSpace` already placed this Space's
+                // strips. During App Exposé or Mission Control the window list describes the
+                // overview, not the desktop: moving frames onto other windows then tears.
+                // `overviewClosed` updates every frame once it's gone.
                 continue
             } else if !group.members.contains(where: { id in
                 guard let w = window(id) else { return false }; return w.isOnScreen && !w.isMinimized && !w.isFullscreen && !group.suspended.contains(id)
             }) {
                 if current == nil { current = SkyLight.shared.currentSpaces() }
-                if !frameStaysOnItsSpace(group, panel, current: current ?? []) { panel.orderOut(nil) }
+                // The census can still say "off screen" for windows on the desktop just switched
+                // to; the window server already knows better.
+                if let frame = onShownSpace(group, current: current ?? []) {
+                    panel.place(around: frame, windowID: group.activeWindowID)
+                    panel.restack()
+                } else if !frameStaysOnItsSpace(group, panel, current: current ?? []) { panel.orderOut(nil) }
             } else { panel.update(group) }
         }
     }

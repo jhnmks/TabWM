@@ -426,8 +426,16 @@ final class WindowSystem {
             return NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
         } catch { lastError = "Preview failed: \(error.localizedDescription)"; return nil }
     }
+    /// Icon per window, kept while the window is briefly missing from the census (apps like
+    /// Ghostty stop listing windows on another desktop), so tab icons don't blink out.
+    private var icons: [UInt32: NSImage] = [:]
     func appIcon(_ id: UInt32) -> NSImage? {
-        guard let info = windows.first(where: { $0.id == id }) else { return nil }
-        return NSRunningApplication(processIdentifier: info.pid)?.icon
+        if let info = windows.first(where: { $0.id == id }), let icon = NSRunningApplication(processIdentifier: info.pid)?.icon {
+            icons[id] = icon
+            return icon
+        }
+        return icons[id]
     }
+    /// Drops cached icons for windows that are gone for good.
+    func forgetIcons(except keep: Set<UInt32>) { icons = icons.filter { keep.contains($0.key) } }
 }
