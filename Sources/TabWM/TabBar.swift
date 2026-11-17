@@ -2,9 +2,6 @@ import AppKit
 import SwiftUI
 import TabWMCore
 
-import os
-/// Diagnostic trace of everything done to frame windows: `log stream --predicate 'subsystem == "dev.tabwm.TabWM" AND category == "frames"'`.
-let frameLog = Logger(subsystem: "dev.tabwm.TabWM", category: "frames")
 
 enum FrameMetrics {
     /// Approximates the corner radius of standard macOS windows so the border hugs them.
@@ -66,7 +63,6 @@ final class GroupFramePanel: NSPanel {
         // frame then shows as tearing. The update after the switch settles restacks if needed.
         guard let anchorWindowID, isVisible, controller?.isSpaceTransitioning != true, controller?.overviewOpen != true, isOnShownSpace,
               needsRestack(above: anchorWindowID) else { return }
-        frameLog.notice("restack \(self.windowNumber, privacy: .public) above \(anchorWindowID, privacy: .public)")
         order(.above, relativeTo: Int(anchorWindowID))
     }
     /// Whether the frame's desktop is the one being shown.
@@ -76,10 +72,7 @@ final class GroupFramePanel: NSPanel {
     }
 
 
-    override func orderOut(_ sender: Any?) {
-        if isVisible { frameLog.notice("hide \(self.windowNumber, privacy: .public)") }
-        super.orderOut(sender)
-    }
+
     /// Whether the frame has to be reordered to sit directly above `window`. Not while the
     /// frame isn't on screen: it is then on another desktop, or macOS is still sliding its
     /// desktop in, and reordering it mid-switch shows as tearing. macOS keeps the stacking from
@@ -122,7 +115,6 @@ final class GroupFramePanel: NSPanel {
         let rect = NSRect(x: windowFrame.minX - t, y: primaryHeight - windowFrame.maxY - t,
                           width: windowFrame.width + 2 * t, height: windowFrame.height + 2 * t + bar).integral
         if frame != rect {
-            frameLog.notice("place \(self.windowNumber, privacy: .public) \(String(describing: self.frame), privacy: .public) -> \(String(describing: rect), privacy: .public)")
             if rect.size == lastSize {
                 // A pure move never relayouts the content.
                 setFrameOrigin(rect.origin)
@@ -139,7 +131,6 @@ final class GroupFramePanel: NSPanel {
         let alpha = max(0.3, min(1, controller.settings.tabBarOpacity))
         if alphaValue != alpha { alphaValue = alpha }
         if anchorWindowID != windowID || !isVisible {
-            frameLog.notice("show \(self.windowNumber, privacy: .public) above \(windowID, privacy: .public) (was visible: \(self.isVisible, privacy: .public))")
             anchorWindowID = windowID
             // Straight into place above the window: ordering it to the very front first would
             // flash it over every other window for a frame.
@@ -152,7 +143,6 @@ struct GroupFrameView: View {
     @ObservedObject var controller: AppController
     let groupID: UUID
     var body: some View {
-        let _ = frameLog.notice("redraw frame content")
         if let group = controller.groups.first(where: { $0.id == groupID }) {
             let t = CGFloat(controller.settings.frameThickness)
             let bar = CGFloat(controller.settings.tabBarHeight)

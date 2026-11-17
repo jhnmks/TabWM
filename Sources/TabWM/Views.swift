@@ -489,7 +489,7 @@ struct SettingsView: View {
     // MARK: About
 
     static var appVersion: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.5"
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.8"
     }
 
     var about: some View {

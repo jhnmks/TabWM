@@ -145,7 +145,6 @@ final class AppController: NSObject, ObservableObject, NSMenuDelegate {
         spaceObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
-                frameLog.notice("desktop switch notification")
                 self.isSpaceTransitioning = true
                 self.spaceGeneration &+= 1
                 let generation = self.spaceGeneration
@@ -155,7 +154,7 @@ final class AppController: NSObject, ObservableObject, NSMenuDelegate {
                 try? await Task.sleep(for: .milliseconds(700))
                 // A second switch during the wait restarts the clock.
                 guard generation == self.spaceGeneration else { return }
-                frameLog.notice("desktop switch settled")
+
                 self.isSpaceTransitioning = false
                 // Membership decisions wait for a census taken on the settled Space.
                 self.spaceSettledAt = ProcessInfo.processInfo.systemUptime

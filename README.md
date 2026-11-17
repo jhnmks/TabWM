@@ -11,7 +11,7 @@ Requires macOS 15 or later. Liquid Glass needs macOS 26; earlier versions get a 
 
 ## Install
 
-Download `TabWM-1.5.zip` from the [latest release](https://github.com/jhnmks/TabWM/releases/latest), unzip it, move `TabWM.app` to `/Applications`, and open it. Or build it from source (see [Building](#building)).
+Download `TabWM-1.8.zip` from the [latest release](https://github.com/jhnmks/TabWM/releases/latest), unzip it, move `TabWM.app` to `/Applications`, and open it. Or build it from source (see [Building](#building)).
 
 TabWM isn't notarized, so macOS blocks the first launch. Open **System Settings → Privacy & Security** and click **Open Anyway**, or run `xattr -dr com.apple.quarantine /Applications/TabWM.app`.
 
@@ -37,6 +37,7 @@ Turn off Stage Manager: grouping pauses while it is on. If you use 🌐 as the l
 **Work with tabs**
 
 - Click a tab, or press 🌐 ← / 🌐 →, to switch.
+- Hold 🌐 ⌘ to see every tab's number, then press a number to jump to that tab (1 is the first, 0 the tenth).
 - Press 🌐 ⌃ ← / 🌐 ⌃ → to move the current tab one place. Keep holding 🌐 ⌃ and press the arrow again to keep moving it.
 - Drag a tab to reorder it, onto another group's strip to move it, or off the strip to detach it.
 - Closing a window or quitting its app removes its tab right away.
@@ -62,6 +63,7 @@ Turn off Stage Manager: grouping pauses while it is on. If you use 🌐 as the l
 | 🌐 S | Search tabs |
 | 🌐 ← / 🌐 → | Previous / next tab |
 | 🌐 ⌃ ← / 🌐 ⌃ → | Move the current tab left / right |
+| 🌐 ⌘ 1 … 🌐 ⌘ 0 | Jump to tab 1 … 10 (hold 🌐 ⌘ to see the numbers) |
 
 Hold the leader and press the key, or tap the leader and press the key within a second. Leader shortcuts can add ⇧ or ⌃ (`leader+shift+KEY`, `leader+ctrl+KEY`). Change the leader once (Globe, a right-hand modifier, or a chord such as ⌃⌥) and every shortcut follows. Any shortcut can use its own combo instead, or be turned off.
 
@@ -78,6 +80,7 @@ tap-leader = true      # true | false
 [shortcuts]
 group-all     = "leader+G"           # "leader+KEY" | "MODIFIERS+KEY" | "off"
 move-tab-left = "leader+ctrl+left"   # "leader+KEY" | "MODIFIERS+KEY" | "off"
+jump-to-tab   = "leader+cmd+NUMBER"  # "leader+MODIFIERS+NUMBER" | "MODIFIERS+NUMBER" | "off"
 
 [appearance]
 style        = "color"   # glass | color
